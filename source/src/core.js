@@ -171,6 +171,45 @@
   KK.FEEDBACK_BAD = ['Melkein! Katso selitys.', 'Ei haittaa – tästä oppii!', 'Hups! Seuraava menee varmasti.', 'Hyvä yritys!'];
   KK.endMessage = function (acc) { return acc >= 0.9 ? 'Olet valmis kokeeseen! 🏆' : acc >= 0.75 ? 'Tosi hyvä! Vielä vähän kertausta.' : acc >= 0.5 ? 'Hyvä alku! Kertaa väärät, niin muistat ne.' : 'Harjoitus tekee mestarin – kokeile uudestaan!'; };
 
+  // ---------- kuvan mitat ilman dekoodausta ----------
+  KK.MAX_IMAGE_SIDE = 1600;
+  // JPEG (SOF + EXIF-orientaatio) tai PNG (IHDR) → {type, width, height, orientation}; tuntematon → null
+  KK.imageInfo = function (buf) {
+    var b = new Uint8Array(buf), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = b.length;
+    if (n > 24 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return { type: 'png', width: dv.getUint32(16), height: dv.getUint32(20), orientation: 1 };
+    if (n < 4 || b[0] !== 0xFF || b[1] !== 0xD8) return null;
+    var p = 2, orient = 1, w = 0, h = 0;
+    while (p + 4 <= n) {
+      if (b[p] !== 0xFF) { p++; continue; }
+      var m = b[p + 1]; if (m === 0xFF) { p++; continue; }
+      if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { p += 2; continue; }
+      if (p + 4 > n) break; var len = dv.getUint16(p + 2);
+      if (m === 0xE1 && p + 10 <= n && dv.getUint32(p + 4) === 0x45786966) { // "Exif"
+        var t = p + 10; if (t + 8 <= n) { var le = dv.getUint16(t) === 0x4949; var ifd = t + dv.getUint32(t + 4, le);
+          if (ifd + 2 <= n) { var cnt = dv.getUint16(ifd, le); for (var i = 0; i < cnt; i++) { var e = ifd + 2 + i * 12; if (e + 10 > n) break; if (dv.getUint16(e, le) === 0x0112) { orient = dv.getUint16(e + 8, le); break; } } } }
+      }
+      if ((m >= 0xC0 && m <= 0xC3) || (m >= 0xC5 && m <= 0xC7) || (m >= 0xC9 && m <= 0xCB) || (m >= 0xCD && m <= 0xCF)) { if (p + 9 <= n) { h = dv.getUint16(p + 5); w = dv.getUint16(p + 7); } break; }
+      if (m === 0xDA) break;
+      p += 2 + len;
+    }
+    if (!w || !h) return null;
+    return { type: 'jpeg', width: w, height: h, orientation: orient >= 1 && orient <= 8 ? orient : 1 };
+  };
+  // Kohdekoko käännön jälkeen (orientaatiot 5–8 vaihtavat leveyden ja korkeuden), pisin sivu ≤ max
+  KK.targetSize = function (w, h, orientation, max) {
+    if (orientation >= 5) { var t = w; w = h; h = t; }
+    var s = Math.min(1, (max || KK.MAX_IMAGE_SIDE) / Math.max(w, h));
+    return { w: Math.max(1, Math.round(w * s)), h: Math.max(1, Math.round(h * s)) };
+  };
+  // Terävyys (Laplace-varianssi) ja kirkkaus RGBA-taulukosta
+  KK.sharpness = function (d, W, H) {
+    var g = new Float32Array(W * H), i; for (i = 0; i < W * H; i++) g[i] = .299 * d[i * 4] + .587 * d[i * 4 + 1] + .114 * d[i * 4 + 2];
+    var sum = 0, sq = 0, n = 0, br = 0;
+    for (var y = 1; y < H - 1; y++) for (var x = 1; x < W - 1; x++) { var k = y * W + x; var L = 4 * g[k] - g[k - 1] - g[k + 1] - g[k - W] - g[k + W]; sum += L; sq += L * L; n++; br += g[k]; }
+    var v = n ? sq / n - (sum / n) * (sum / n) : 0; br = n ? br / n : 128;
+    return { sharp: v, dark: br < 60, blurry: v < 40 || br < 60 };
+  };
+
   // ---------- Gemini ----------
   // Kaksi vaihetta: 'read' = kuvat → lähdeteksti + tiivistelmä + käsitteet; 'questions' = tallennettu teksti → kysymyserä (ei kuvia)
   KK.MAX_OUTPUT_TOKENS = 65536; // gemini-3.8-flash ja gemini-3.5-flash-lite: output token limit 65 536

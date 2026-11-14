@@ -62,13 +62,13 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   await pg.click('#v-home [data-go=create]'); await sleep(200);
   await pg.type('#cSubject', 'Historia'); await pg.type('#cName', 'Ranskan vallankumous');
   const gal = await pg.$('#galIn'); await gal.uploadFile(path.join(__dirname, 'page1.jpg'), path.join(__dirname, 'blurry.jpg'));
-  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 2, { timeout: 10000 });
+  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 2 && document.querySelector('#cBusy').classList.contains('hidden'), { timeout: 10000 });
   ok(await pg.$$eval('#thumbs .blur', e => e.length) === 1, 'epätarkka kuva tunnistettu (1/2)');
   ok(await visible('#blurWarn'), 'epätarkkuusvaroitus näkyy');
-  ok(await pg.$eval('.info', e => e.textContent.includes('Gemini')), 'tietosuojahuomautus näkyy');
+  ok(await pg.$$eval('.info', es => es.some(e => e.textContent.includes('Gemini'))), 'tietosuojahuomautus näkyy');
   await shot('create');
   await pg.click('[data-rm="1"]'); await sleep(200);
-  await pg.click('#cGo'); await sleep(400);
+  await pg.click('#cGo'); await sleep(800);
   ok(await view() === 'v-create' && (await txt('#cErr')).includes('avain puuttuu'), 'virhe: avain puuttuu');
   ok(await pg.$eval('#cSubject', e => e.value) === 'Historia', 'lomakkeen tiedot säilyvät virheen jälkeen');
 
@@ -83,9 +83,9 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   await pg.click('nav [data-go=home]'); await sleep(200); await pg.click('#v-home [data-go=create]'); await sleep(200);
   await pg.type('#cSubject', 'Historia'); await pg.type('#cName', 'Ranskan vallankumous');
   await (await pg.$('#camIn')).uploadFile(path.join(__dirname, 'page1.jpg'));
-  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
+  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1 && document.querySelector('#cBusy').classList.contains('hidden'));
   for (let i = 0; i < 8; i++) mock.push({ status: 429, body: JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota', status: 'RESOURCE_EXHAUSTED' } }) });
-  await pg.click('#cGo'); await pg.waitForFunction(() => !document.querySelector('#cErr').classList.contains('hidden'), { timeout: 10000 });
+  await pg.click('#cGo'); await pg.waitForFunction(() => !document.querySelector('#cErr').classList.contains('hidden'), { timeout: 10000 }).catch(async () => { await shot('dbg88'); console.log('   DBG', await view(), mock.length, await pg.$eval('#cGo', e => e.disabled), await pg.$eval('#loadSub', e => e.textContent)); });
   ok((await txt('#cErr')).includes('käyttöraja on täynnä molemmissa'), 'virhe: kiintiö ylittyi (molemmat mallit, 8 yritystä)'); ok(mock.length === 0, '429-uusinnat käytetty');
   // Sumea kuva -vastaus
   mock.push({ status: 200, body: wrap({ luettavuus: { ok: false, ongelma: 'teksti on sumeaa' }, lahdeteksti: '', tiivistelma: '', kysymykset: [] }) });
@@ -99,7 +99,7 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   mock.push({ status: 200, body: wrapRaw('', 'MAX_TOKENS', { thoughtsTokenCount: 65536 }) });
   mock.push({ status: 200, body: wrap({ kysymykset: QS.slice(7) }) });
   const before = reqs.length;
-  await pg.click('#cGo'); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam', { timeout: 15000 });
+  await pg.click('#cGo'); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam', { timeout: 15000 }).catch(async () => { console.log('   DBG2', await view(), mock.length, await txt('#cErr'), await pg.$eval('#loadMsg', e => e.textContent), JSON.stringify(errs)); });
   const posts = reqs.slice(before).filter(r => r.method === 'POST');
   const body = JSON.parse(posts[0].body), body2 = JSON.parse(posts[1].body);
   ok(posts.length === 5, 'kutsut: luku (+varapolku) ja kysymyserät uusintoineen: ' + posts.length);
@@ -185,7 +185,7 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   await pg.click('#v-home [data-go=create]'); await sleep(200);
   await pg.type('#cSubject', 'Biologia'); await pg.type('#cName', 'Solut');
   await (await pg.$('#camIn')).uploadFile(path.join(__dirname, 'page1.jpg'));
-  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
+  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1 && document.querySelector('#cBusy').classList.contains('hidden'));
   await pg.$$eval('#cCount .chip', cs => cs.find(c => c.dataset.v === '15').click());
   const busy = { status: 503, body: '{"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}' };
   mock.push(busy, busy, { status: 200, body: wrap(full) });           // luku: 2 × 503 → onnistuu 3. yrityksellä
@@ -212,6 +212,43 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   const dbg2 = await txt('#sDbgOut');
   ok(dbg2.includes('"event":"fallback"') && dbg2.includes('"from":"gemini-3') && dbg2.includes('"http":503'), 'vianetsinnässä varamallin vaihto ja 503:t');
   await shot('partial');
+  await pg.click('nav [data-go=home]'); await sleep(300);
+
+  // ---------- Kamera / muisti / luonnos ----------
+  await pg.click('#v-home [data-go=create]'); await sleep(200);
+  ok(await pg.$eval('#camIn', e => e.getAttribute('capture') === 'environment' && !e.multiple) && await pg.$eval('#galIn', e => !e.hasAttribute('capture') && e.multiple), 'erilliset napit: kamera (capture) ja galleria (multiple)');
+  ok((await txt('#galBtn')).includes('Valitse galleriasta'), 'galleria-napin teksti');
+  await pg.type('#cSubject', 'Biologia'); await pg.type('#cName', 'Kasvisolu');
+  // iso 48 Mpx -kuva EXIF-käännöllä + rikkinäinen tiedosto
+  await (await pg.$('#galIn')).uploadFile(path.join(__dirname, 'big_rot6.jpg'), path.join(__dirname, 'broken.jpg'));
+  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1 && document.querySelector('#cBusy').classList.contains('hidden'), { timeout: 30000 });
+  ok((await txt('#cErr')).includes('Kuvaa ei voitu avata') && await view() === 'v-create', 'rikkinäinen kuva → suomenkielinen virhe, sivu ei tyhjene');
+  await sleep(400);
+  const dim = await pg.evaluate(() => new Promise(res => { const r = indexedDB.open('koekertaus'); r.onsuccess = () => { const g = r.result.transaction('drafts').objectStore('drafts').get('current'); g.onsuccess = async () => { const d = g.result; const bm = await createImageBitmap(d.photos[0].blob); res({ w: bm.width, h: bm.height, kb: Math.round(d.photos[0].blob.size / 1024), subject: d.subject }); }; }; }));
+  console.log('   iso kuva →', JSON.stringify(dim));
+  ok(dim.w === 1200 && dim.h === 1600 && dim.kb < 700 && dim.subject === 'Biologia', 'iso kuva pienennetty ja käännetty pystyyn (1200×1600), luonnos tallessa IndexedDB:ssä');
+  // Kamera auki → selain sulkee sivun → sivu latautuu uudelleen
+  const [fc] = await Promise.all([pg.waitForFileChooser({ timeout: 5000 }), pg.click('#camBtn')]);
+  ok(fc.isMultiple() === false, 'kameran tiedostovalitsin avautui');
+  await sleep(300); await pg.reload(); await sleep(1200);
+  ok(await view() === 'v-create' && await visible('#camLost'), 'uudelleenlatauksen jälkeen palataan lomakkeelle + ohje kamerasovelluksesta');
+  ok(await pg.$eval('#cSubject', e => e.value) === 'Biologia' && await pg.$eval('#cName', e => e.value) === 'Kasvisolu' && await pg.$$eval('#thumbs .thumb', e => e.length) === 1, 'aine, nimi ja kuva palautettu');
+  await shot('camera-restore');
+  // Kotiin ilman peruutusta → myöhemmin kysytään jatketaanko
+  await pg.click('nav [data-go=home]'); await sleep(200); await pg.reload(); await sleep(1200);
+  ok(await view() === 'v-home' && await visible('#draftCard') && (await txt('#draftTxt')).includes('Kasvisolu · 1 kuva'), '"Jatketaanko keskeneräistä koetta?" näkyy');
+  await shot('draft-card');
+  await pg.click('#draftYes'); await sleep(400);
+  ok(await view() === 'v-create' && await pg.$$eval('#thumbs .thumb', e => e.length) === 1 && !(await visible('#camLost')), 'Jatka palauttaa luonnoksen');
+  await pg.click('#cCancel'); await sleep(300); await pg.reload(); await sleep(1000);
+  ok(!(await visible('#draftCard')), 'Peruuta poistaa luonnoksen');
+  // Globaali virheenkäsittely
+  await pg.addScriptTag({ content: "setTimeout(function(){ throw new Error('testivirhe'); }, 0);" }); await sleep(300);
+  ok(await pg.$eval('#crash', e => e.getBoundingClientRect().height > 50) && (await txt('#crashMsg')).includes('testivirhe') && await pg.$eval('main', e => e.offsetHeight > 0), 'JS-virhe → virhekortti, sivu ei tyhjene');
+  await pg.click('#crashClose');
+  await pg.click('nav [data-go=settings]'); await sleep(200); await pg.click('#sDbg'); await sleep(100);
+  ok((await txt('#sDbgOut')).includes('"event":"js-error"') && (await txt('#sDbgOut')).includes('image-error'), 'virheet kirjattu vianetsintään');
+  errs.splice(0, errs.length, ...errs.filter(e => !/testivirhe/.test(e)));
   await pg.click('nav [data-go=home]'); await sleep(300);
 
   // Offline: sovellus latautuu välimuistista

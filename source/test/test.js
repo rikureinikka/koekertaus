@@ -144,6 +144,15 @@ t('repairJson', () => {
   assert.strictEqual(KK.repairJson('ei'), null);
 });
 t('eräsuunnitelma', () => { assert.deepStrictEqual(KK.batchPlan(20), [10, 10]); assert.deepStrictEqual(KK.batchPlan(15), [10, 5]); assert.deepStrictEqual(KK.batchPlan(30), [10, 10, 10]); });
+t('kuvan mitat otsakkeesta: JPEG + EXIF-kääntö, PNG, rikkinäinen', () => {
+  const fs = require('fs'), path = require('path'); const e2e = path.join(__dirname, '../e2e');
+  assert.deepStrictEqual(KK.imageInfo(fs.readFileSync(path.join(e2e, 'big_rot6.jpg')).subarray(0, 262144)), { type: 'jpeg', width: 8000, height: 6000, orientation: 6 });
+  assert.deepStrictEqual(KK.imageInfo(fs.readFileSync(path.join(e2e, 'page1.jpg'))), { type: 'jpeg', width: 1500, height: 2000, orientation: 1 });
+  assert.strictEqual(KK.imageInfo(fs.readFileSync(path.join(e2e, 'broken.jpg'))), null);
+  assert.strictEqual(KK.imageInfo(new Uint8Array([1, 2, 3]).buffer), null);
+  assert.deepStrictEqual(KK.targetSize(8000, 6000, 6, 1600), { w: 1200, h: 1600 }); assert.deepStrictEqual(KK.targetSize(8000, 6000, 1, 1600), { w: 1600, h: 1200 }); assert.deepStrictEqual(KK.targetSize(800, 600, 1, 1600), { w: 800, h: 600 });
+  const flat = new Uint8ClampedArray(20 * 20 * 4).fill(200); assert.ok(KK.sharpness(flat, 20, 20).blurry);
+});
 const mkQs = (n, p) => Array.from({ length: n }, (_, i) => KK.normalizeQuestion({ tyyppi: 'tosi_epatosi', kysymys: p + ' väite ' + i, totta: true, selitys: 's' }));
 const asyncTests = [];
 function at(name, fn) { asyncTests.push([name, fn]); }

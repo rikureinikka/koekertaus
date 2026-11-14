@@ -40,6 +40,7 @@ input:focus,select:focus{outline:3px solid var(--pri2);border-color:var(--pri)}
 .info{background:#eef6ff;border:2px solid #cfe3ff;color:#1d3f72;border-radius:16px;padding:12px 14px;margin:12px 0;font-size:15px}
 .warnbox{background:#fff6e0;border:2px solid #ffd98a;color:#6b4a00;border-radius:16px;padding:12px 14px;margin:12px 0;font-size:15px}
 .hidden{display:none!important}
+.vh{position:absolute!important;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none}
 nav{position:fixed;bottom:0;left:0;right:0;z-index:6;background:#fff;display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -2px 14px rgba(0,0,0,.08)}
 nav button{flex:1;background:none;border:0;font:inherit;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;min-height:58px;border-radius:14px}
 nav button span{font-size:26px}nav button.on{color:var(--pri);background:#f0eaff}
@@ -93,12 +94,31 @@ nav button span{font-size:26px}nav button.on{color:var(--pri);background:#f0eaff
 ol.steps li{margin:6px 0}
 a{color:var(--pri);font-weight:700}
 </style>
+<script>
+// Virheenkäsittely ennen kaikkea muuta: näytetään virhekortti valkoisen sivun sijaan ja kirjataan vianetsintään
+(function(){
+  function log(rec){try{var a=JSON.parse(localStorage.getItem('koekertaus.debug')||'[]');a.push(rec);while(a.length>25)a.shift();localStorage.setItem('koekertaus.debug',JSON.stringify(a));}catch(e){}}
+  function t(){var d=new Date();return d.toISOString();}
+  function show(msg){try{var c=document.getElementById('crash');if(!c){c=document.createElement('div');c.id='crash';c.setAttribute('role','alert');
+      c.style.cssText='position:fixed;left:12px;right:12px;bottom:calc(90px + env(safe-area-inset-bottom));z-index:99;background:#fff;border:3px solid #ff5a5f;border-radius:18px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.25);font:16px/1.4 system-ui,sans-serif;color:#231942';
+      c.innerHTML='<b style="font-size:18px">😕 Hups, jotain meni vikaan</b><p id="crashMsg" style="margin:6px 0;word-break:break-word"></p><p style="margin:6px 0;font-size:14px;color:#6b6286">Kokeet ja keskeneräinen koe ovat tallessa. Tiedot löytyvät: Asetukset → Näytä viimeisin virhe.</p><button id="crashReload" style="min-height:48px;border:0;border-radius:12px;background:#6c3cf0;color:#fff;font:inherit;font-weight:800;padding:0 16px;margin-right:8px">🔄 Lataa uudelleen</button><button id="crashClose" style="min-height:48px;border:2px solid #e3dafd;border-radius:12px;background:#fff;color:#6c3cf0;font:inherit;font-weight:800;padding:0 16px">Sulje</button>';
+      (document.body||document.documentElement).appendChild(c);document.getElementById('crashReload').onclick=function(){location.reload();};document.getElementById('crashClose').onclick=function(){c.remove();};}
+    document.getElementById('crashMsg').textContent=msg;}catch(e){}}
+  window.__kkFatal=function(msg,extra){log(Object.assign({t:t(),event:'js-error',message:String(msg)},extra||{}));show(msg);};
+  window.addEventListener('error',function(e){if(e&&e.message&&/ResizeObserver/.test(e.message))return;if(e&&e.target&&e.target!==window&&!e.message)return; // resurssin latausvirhe
+    window.__kkFatal(e.message||'Tuntematon virhe',{src:e.filename,line:e.lineno,col:e.colno,stack:e.error&&e.error.stack?String(e.error.stack).slice(0,800):undefined,ua:navigator.userAgent});});
+  window.addEventListener('unhandledrejection',function(e){var r=e.reason;window.__kkFatal('Käsittelemätön virhe: '+(r&&r.message||r),{stack:r&&r.stack?String(r.stack).slice(0,800):undefined,ua:navigator.userAgent});});
+  // Vahtikoira: jos sovellus ei käynnisty 8 sekunnissa, kerrotaan se
+  setTimeout(function(){if(!window.__kkStarted)window.__kkFatal('Sovellus ei käynnistynyt. Kokeile ladata sivu uudelleen. Jos käytät Samsung Internetiä, kokeile Chromea.');},8000);
+})();
+</script>
 </head>
 <body>
 <header><h1>📚 Koekertaus</h1><button id="playerChip" aria-label="Vaihda pelaaja"><span class="av" id="pcAv">🙂</span><span><span id="pcName">–</span><small id="pcLvl"></small></span></button></header>
 <main>
   <!-- KOTI -->
   <section class="view" id="v-home">
+    <div id="draftCard" class="card hidden" style="border:3px solid var(--warn)"><b style="font-size:19px">📝 Jatketaanko keskeneräistä koetta?</b><p class="muted" id="draftTxt"></p><div class="row"><button class="btn ok" id="draftYes">Jatka</button><button class="btn sec" id="draftNo">Hylkää</button></div></div>
     <div id="keyWarn" class="warnbox hidden">🔑 Tekoälyavain puuttuu. Lisää Gemini-avain <a href="#" data-go="settings">Asetuksissa</a> (ohje <a href="#" data-go="help">täällä</a>).</div>
     <div class="card" id="lvlCard"></div>
     <button class="btn" data-go="create">📷 Uusi koe – kuvaa koealue</button>
@@ -120,11 +140,13 @@ a{color:var(--pri);font-weight:700}
     </div>
     <label>Kirjan sivut</label>
     <div class="row">
-      <label class="btn" style="margin:0" for="camIn">📷 Ota kuva</label>
-      <label class="btn sec" style="margin:0" for="galIn">🖼️ Galleriasta</label>
+      <label class="btn" style="margin:0" for="camIn" id="camBtn">📷 Ota kuva</label>
+      <label class="btn sec" style="margin:0" for="galIn" id="galBtn">🖼️ Valitse galleriasta</label>
     </div>
-    <input type="file" id="camIn" accept="image/*" capture="environment" class="hidden">
-    <input type="file" id="galIn" accept="image/*" multiple class="hidden">
+    <input type="file" id="camIn" accept="image/*" capture="environment" class="vh">
+    <input type="file" id="galIn" accept="image/*" multiple class="vh">
+    <div id="camLost" class="warnbox hidden">📷 Puhelin sulki sivun kameran ollessa auki, joten viimeisin kuva ei ehkä tallentunut. Aiemmat tiedot on palautettu. Jos kuva puuttuu, ota se puhelimen omalla kamerasovelluksella ja lisää napista <b>Valitse galleriasta</b>.</div>
+    <div id="cBusy" class="info hidden">⏳ Käsitellään kuvaa…</div>
     <p class="muted">Kuvaa yksi aukeama tai sivu kerrallaan, hyvässä valossa ja suoraan ylhäältä. Enintään 12 kuvaa.</p>
     <div class="thumbs" id="thumbs"></div>
     <div id="blurWarn" class="warnbox hidden">📸 Osa kuvista näyttää epätarkalta. Teksti luetaan paremmin, jos otat ne uudelleen.</div>
@@ -135,7 +157,7 @@ a{color:var(--pri);font-weight:700}
     <div class="info">🔒 Kuvat lähetetään Googlen Gemini-tekoälylle käsiteltäviksi. Kuvia ei tallenneta tähän sovellukseen, vain niistä luettu teksti ja tehtävät. Älä kuvaa sivuja, joilla on nimiä tai henkilökuvia.</div>
     <div id="cErr" class="err hidden"></div>
     <button class="btn ok" id="cGo" disabled>✨ Tee tehtävät</button>
-    <button class="btn sec" data-go="home">Peruuta</button>
+    <button class="btn sec" id="cCancel">Peruuta</button>
   </section>
 
   <!-- LADATAAN -->
@@ -262,7 +284,7 @@ function saveSettings(){localStorage.setItem(SETKEY,JSON.stringify(S));}
 
 // ---------- IndexedDB ----------
 var dbp=null;
-function db(){if(dbp)return dbp;dbp=new Promise(function(res,rej){var r=indexedDB.open('koekertaus',1);r.onupgradeneeded=function(){var d=r.result;d.createObjectStore('players',{keyPath:'id'});d.createObjectStore('exams',{keyPath:'id'});d.createObjectStore('progress',{keyPath:'key'});};r.onsuccess=function(){res(r.result);};r.onerror=function(){rej(r.error);};});return dbp;}
+function db(){if(dbp)return dbp;dbp=new Promise(function(res,rej){var r=indexedDB.open('koekertaus',2);r.onupgradeneeded=function(ev){var d=r.result;['players','exams','progress','drafts'].forEach(function(n){if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:n==='progress'?'key':'id'});});};r.onblocked=function(){rej(new Error('Tietokanta on varattu toisessa välilehdessä. Sulje muut Koekertaus-välilehdet.'));};r.onsuccess=function(){res(r.result);};r.onerror=function(){rej(r.error);};});return dbp;}
 function tx(store,mode,fn){return db().then(function(d){return new Promise(function(res,rej){var t=d.transaction(store,mode);var s=t.objectStore(store);var out=fn(s);t.oncomplete=function(){res((out&&typeof IDBRequest!=='undefined'&&out instanceof IDBRequest)?out.result:out);};t.onerror=function(){rej(t.error);};});});}
 var DB={all:function(s){return tx(s,'readonly',function(st){return st.getAll();});},get:function(s,k){return tx(s,'readonly',function(st){return st.get(k);});},put:function(s,v){return tx(s,'readwrite',function(st){st.put(v);}).then(function(){return v;});},del:function(s,k){return tx(s,'readwrite',function(st){st.delete(k);});},clear:function(s){return tx(s,'readwrite',function(st){st.clear();});}};
 
@@ -278,6 +300,7 @@ function init(){
     return ps;
   }).then(function(ps){players=ps;if(!player()||!S.player){S.player=null;saveSettings();}return DB.all('exams');}).then(function(es){exams=es;
     if(!S.player){go('players');}else go('home');
+    window.__kkStarted=true;return checkDraft();
   });
 }
 
@@ -360,44 +383,98 @@ $('#sDbgCopy').onclick=function(){var t=dbgText();(navigator.clipboard?navigator
 $('#sWipe').onclick=function(){if(!confirm('Poistetaanko kaikki kokeet, pelaajat ja pisteet tästä laitteesta? API-avain säilyy.'))return;
   Promise.all([DB.clear('exams'),DB.clear('progress'),DB.clear('players')]).then(function(){S.player=null;saveSettings();location.reload();});};
 
-// ---------- kuvat ----------
+// ---------- kuvat (muistia säästäen: yksi kerrallaan, pienennys jo dekoodauksessa) ----------
 var photos=[];
-function loadImg(file){
-  if(window.createImageBitmap)return createImageBitmap(file,{imageOrientation:'from-image'}).catch(function(){return createImageBitmap(file);}).catch(function(){return imgEl(file);});
-  return imgEl(file);
-}
-function imgEl(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file);var i=new Image();i.onload=function(){res(i);};i.onerror=function(){rej(new Error('kuva'));};i.src=u;});}
-function processFile(file){
-  return loadImg(file).then(function(img){
-    var w=img.width,h=img.height,MAX=1600,s=Math.min(1,MAX/Math.max(w,h));
-    var c=document.createElement('canvas');c.width=Math.round(w*s);c.height=Math.round(h*s);var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);
-    var url=c.toDataURL('image/jpeg',0.82);
-    // terävyysarvio: Laplace-varianssi pienennetystä harmaasävykuvasta
-    var t=document.createElement('canvas'),ts=Math.min(1,500/Math.max(c.width,c.height));t.width=Math.round(c.width*ts);t.height=Math.round(c.height*ts);var tx2=t.getContext('2d');tx2.drawImage(c,0,0,t.width,t.height);
-    var d=tx2.getImageData(0,0,t.width,t.height).data,W=t.width,H=t.height,g=new Float32Array(W*H);for(var i=0;i<W*H;i++)g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];
-    var sum=0,sq=0,n=0,br=0;for(var yy=1;yy<H-1;yy++)for(var xx=1;xx<W-1;xx++){var k=yy*W+xx;var L=4*g[k]-g[k-1]-g[k+1]-g[k-W]-g[k+W];sum+=L;sq+=L*L;n++;br+=g[k];}
-    var v=n?sq/n-(sum/n)*(sum/n):0;br=n?br/n:128;
-    return {id:KK.uid(),url:url,data:url.split(',')[1],mime:'image/jpeg',sharp:v,dark:br<60,blurry:v<40||br<60};
+function readHead(file){var b=file.slice(0,262144);if(b.arrayBuffer)return b.arrayBuffer();return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.onerror=function(){rej(fr.error);};fr.readAsArrayBuffer(b);});}
+function canvasBlob(c,q){return new Promise(function(res,rej){if(c.toBlob)c.toBlob(function(b){b?res(b):rej(new Error('toBlob'));},'image/jpeg',q);else{try{var u=c.toDataURL('image/jpeg',q),bin=atob(u.split(',')[1]),a=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);res(new Blob([a],{type:'image/jpeg'}));}catch(e){rej(e);}}});}
+function blobB64(b){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(String(fr.result).split(',')[1]);};fr.onerror=function(){rej(fr.error);};fr.readAsDataURL(b);});}
+function imgEl(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file);var i=new Image();i.onload=function(){res({src:i,w:i.naturalWidth,h:i.naturalHeight,done:function(){URL.revokeObjectURL(u);i.src='';}});};i.onerror=function(){URL.revokeObjectURL(u);rej(KK.err('imgdecode','decode'));};i.src=u;});}
+// Palauttaa {src (piirrettävä), w, h, done()} valmiiksi pienennettynä jos selain tukee
+function decodeSmall(file){
+  return readHead(file).then(function(buf){return KK.imageInfo(buf);},function(){return null;}).then(function(info){
+    var t=info?KK.targetSize(info.width,info.height,info.orientation,KK.MAX_IMAGE_SIDE):null;
+    if(window.createImageBitmap&&t){
+      return createImageBitmap(file,{resizeWidth:t.w,resizeHeight:t.h,resizeQuality:'high',imageOrientation:'from-image'}).then(function(bmp){
+        // jos selain käänsi eri järjestyksessä, kokeillaan vaihdetuilla mitoilla
+        if(t.w!==t.h&&(bmp.width>bmp.height)!==(t.w>t.h)){bmp.close&&bmp.close();return createImageBitmap(file,{resizeWidth:t.h,resizeHeight:t.w,resizeQuality:'high',imageOrientation:'from-image'});}
+        return bmp;
+      }).then(function(bmp){return {src:bmp,w:bmp.width,h:bmp.height,done:function(){bmp.close&&bmp.close();}};},function(){return imgEl(file);});
+    }
+    if(window.createImageBitmap)return createImageBitmap(file,{imageOrientation:'from-image'}).then(function(bmp){return {src:bmp,w:bmp.width,h:bmp.height,done:function(){bmp.close&&bmp.close();}};},function(){return imgEl(file);});
+    return imgEl(file);
   });
 }
+function processFile(file){
+  if(file.size>40e6)return Promise.reject(KK.err('imgbig','Kuva on liian suuri ('+Math.round(file.size/1e6)+' Mt).'));
+  if(file.type&&!/^image\//.test(file.type))return Promise.reject(KK.err('imgtype','Tiedosto ei ole kuva.'));
+  return decodeSmall(file).then(function(im){
+    var c=document.createElement('canvas'),t2=document.createElement('canvas');
+    try{
+      var s=Math.min(1,KK.MAX_IMAGE_SIDE/Math.max(im.w,im.h));c.width=Math.max(1,Math.round(im.w*s));c.height=Math.max(1,Math.round(im.h*s));
+      var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im.src,0,0,c.width,c.height);
+      // terävyysarvio: Laplace-varianssi 400 px harmaasävykuvasta
+      var ts=Math.min(1,400/Math.max(c.width,c.height));t2.width=Math.round(c.width*ts);t2.height=Math.round(c.height*ts);var tx2=t2.getContext('2d');tx2.drawImage(c,0,0,t2.width,t2.height);
+      var q=KK.sharpness(tx2.getImageData(0,0,t2.width,t2.height).data,t2.width,t2.height);
+    }finally{im.done();t2.width=t2.height=0;}
+    return canvasBlob(c,0.82).then(function(blob){c.width=c.height=0;return {id:KK.uid(),blob:blob,mime:'image/jpeg',sharp:q.sharp,dark:q.dark,blurry:q.blurry};});
+  });
+}
+function photoUrl(p){if(!p.url)p.url=URL.createObjectURL(p.blob);return p.url;}
+function dropPhoto(p){if(p&&p.url){URL.revokeObjectURL(p.url);p.url=null;}}
+function setPhotos(list){photos.forEach(function(p){if(list.indexOf(p)<0)dropPhoto(p);});photos=list;}
+var busyAdd=false;
 function addFiles(files){var arr=Array.prototype.slice.call(files||[]);if(!arr.length)return;$('#cErr').classList.add('hidden');
-  arr=arr.slice(0,Math.max(0,12-photos.length));
-  Promise.all(arr.map(function(f){return processFile(f).catch(function(){return null;});})).then(function(rs){var bad=0;rs.forEach(function(r){if(r)photos.push(r);else bad++;});
-    if(bad)showErr('#cErr','Kuvaa ei voitu avata ('+bad+' kpl). Kokeile toista kuvaa.');renderThumbs();});}
-$('#camIn').onchange=function(){addFiles(this.files);this.value='';};
+  var room=Math.max(0,12-photos.length);if(arr.length>room)showErr('#cErr','Enintään 12 kuvaa – '+(arr.length-room)+' jätettiin pois.');arr=arr.slice(0,room);
+  busyAdd=true;$('#cBusy').classList.remove('hidden');var bad=[];
+  // yksi kuva kerrallaan, ettei muisti lopu
+  arr.reduce(function(p,f,i){return p.then(function(){$('#cBusy').textContent='⏳ Käsitellään kuvaa '+(i+1)+'/'+arr.length+'…';
+      return processFile(f).then(function(r){photos.push(r);renderThumbs();return saveDraft();},function(e){bad.push(e);dbgLog({t:nowTxt(),event:'image-error',code:e&&e.code,message:String(e&&e.message||e),name:f.name,type:f.type,size:f.size});});});},Promise.resolve())
+  .then(function(){busyAdd=false;$('#cBusy').classList.add('hidden');
+    if(bad.length)showErr('#cErr',(bad.length===1?'Kuvaa':bad.length+' kuvaa')+' ei voitu avata. '+(bad[0]&&bad[0].code==='imgbig'?bad[0].message+' ':'')+'Kokeile ottaa kuva uudelleen tai valitse se galleriasta. (HEIC-kuvat: vaihda kameran tallennusmuodoksi JPEG.)');
+    renderThumbs();});}
+function markCamera(){try{localStorage.setItem('koekertaus.cameraAt',String(Date.now()));}catch(e){}saveDraft(true);}
+$('#camBtn').addEventListener('click',markCamera);
+$('#camIn').onchange=function(){try{localStorage.removeItem('koekertaus.cameraAt');}catch(e){}addFiles(this.files);this.value='';};
 $('#galIn').onchange=function(){addFiles(this.files);this.value='';};
-function renderThumbs(){$('#thumbs').innerHTML=photos.map(function(p,i){return '<div class="thumb"><img src="'+p.url+'" alt="sivu '+(i+1)+'"><button data-rm="'+i+'" aria-label="Poista">✕</button>'+(p.blurry?'<div class="blur">'+(p.dark?'Liian tumma?':'Epätarkka?')+'</div>':'')+'</div>';}).join('');
-  $$('[data-rm]').forEach(function(b){b.onclick=function(){photos.splice(+b.dataset.rm,1);renderThumbs();};});
+$('#camIn').addEventListener('cancel',function(){try{localStorage.removeItem('koekertaus.cameraAt');}catch(e){}});
+function renderThumbs(){$('#thumbs').innerHTML=photos.map(function(p,i){return '<div class="thumb"><img src="'+photoUrl(p)+'" alt="sivu '+(i+1)+'"><button data-rm="'+i+'" aria-label="Poista">✕</button>'+(p.blurry?'<div class="blur">'+(p.dark?'Liian tumma?':'Epätarkka?')+'</div>':'')+'</div>';}).join('');
+  $$('[data-rm]').forEach(function(b){b.onclick=function(){var p=photos.splice(+b.dataset.rm,1)[0];dropPhoto(p);renderThumbs();saveDraft();};});
   $('#blurWarn').classList.toggle('hidden',!photos.some(function(p){return p.blurry;}));updateGo();}
-function chipGroup(sel){$$(sel+' .chip').forEach(function(c){c.onclick=function(){$$(sel+' .chip').forEach(function(x){x.classList.remove('on');});c.classList.add('on');};});}
+function chipGroup(sel,cb){$$(sel+' .chip').forEach(function(c){c.onclick=function(){$$(sel+' .chip').forEach(function(x){x.classList.remove('on');});c.classList.add('on');if(cb)cb();};});}
 function chipVal(sel){var c=$(sel+' .chip.on');return c&&c.dataset.v;}
-chipGroup('#cDiff');chipGroup('#cCount');chipGroup('#mDiff');
+function chipSet(sel,v){$$(sel+' .chip').forEach(function(x){x.classList.toggle('on',x.dataset.v===String(v));});}
+chipGroup('#cDiff',function(){saveDraft();});chipGroup('#cCount',function(){saveDraft();});chipGroup('#mDiff');
 var addTo=null;
-function renderCreate(opt){if(opt&&opt.keep){updateGo();return;}addTo=opt&&opt.addTo||null;photos=[];renderThumbs();$('#cErr').classList.add('hidden');
+// ---------- luonnos (säilyy, vaikka puhelin sulkisi sivun kameran ajaksi) ----------
+var draftT=null;
+function draftObj(){return {id:'current',subject:$('#cSubject').value,title:$('#cName').value,addToId:addTo?addTo.id:null,diff:chipVal('#cDiff'),count:chipVal('#cCount'),
+  photos:photos.map(function(p){return {id:p.id,blob:p.blob,mime:p.mime,sharp:p.sharp,dark:p.dark,blurry:p.blurry};}),owner:S.player,updated:Date.now()};}
+function saveDraft(now){if(curView!=='create'&&!now)return Promise.resolve();clearTimeout(draftT);
+  function put(){var d=draftObj();if(!d.photos.length&&!d.subject.trim()&&!d.title.trim()&&!d.addToId)return DB.del('drafts','current').catch(function(){});return DB.put('drafts',d).catch(function(e){dbgLog({t:nowTxt(),event:'draft-save-error',message:String(e&&e.message||e)});});}
+  if(now===true)return put();return new Promise(function(res){draftT=setTimeout(function(){put().then(res);},250);});}
+function clearDraft(){try{localStorage.removeItem('koekertaus.cameraAt');}catch(e){}return DB.del('drafts','current').catch(function(){});}
+function restoreDraft(d,camLost){addTo=d.addToId?exams.filter(function(x){return x.id===d.addToId;})[0]||null:null;
+  go('create',{keep:true});$('#cMeta').classList.toggle('hidden',!!addTo);$('#cTitle').textContent=addTo?'Lisää sivuja: '+addTo.title:'Uusi koe';
+  $('#cSubject').value=d.subject||'';$('#cName').value=d.title||'';if(d.diff)chipSet('#cDiff',d.diff);if(d.count)chipSet('#cCount',d.count);
+  setPhotos((d.photos||[]).map(function(p){return {id:p.id,blob:p.blob,mime:p.mime||'image/jpeg',sharp:p.sharp,dark:p.dark,blurry:p.blurry};}));renderThumbs();
+  $('#cErr').classList.add('hidden');$('#camLost').classList.toggle('hidden',!camLost);
+  try{localStorage.removeItem('koekertaus.cameraAt');}catch(e){}}
+function checkDraft(){return DB.get('drafts','current').then(function(d){
+  var camAt=+(localStorage.getItem('koekertaus.cameraAt')||0),camLost=camAt&&Date.now()-camAt<30*60e3;
+  if(!d&&!camLost)return;
+  if(!d)d={photos:[],subject:'',title:''};
+  if(camLost){restoreDraft(d,true);return;} // sivu latautui uudelleen kameran ollessa auki → suoraan takaisin lomakkeelle
+  var n=(d.photos||[]).length,name=[d.subject,d.title].filter(Boolean).join(': ')||'nimetön';
+  var c=$('#draftCard');c.classList.remove('hidden');$('#draftTxt').textContent=name+' · '+n+' kuva'+(n===1?'':'a');
+  $('#draftYes').onclick=function(){c.classList.add('hidden');restoreDraft(d,false);};
+  $('#draftNo').onclick=function(){c.classList.add('hidden');clearDraft();};
+}).catch(function(e){dbgLog({t:nowTxt(),event:'draft-load-error',message:String(e&&e.message||e)});});}
+function renderCreate(opt){if(opt&&opt.keep){updateGo();return;}addTo=opt&&opt.addTo||null;setPhotos([]);renderThumbs();$('#cErr').classList.add('hidden');$('#camLost').classList.add('hidden');
   $('#cMeta').classList.toggle('hidden',!!addTo);$('#cTitle').textContent=addTo?'Lisää sivuja: '+addTo.title:'Uusi koe';
-  if(!addTo){$('#cSubject').value='';$('#cName').value='';}updateGo();}
-function updateGo(){$('#cGo').disabled=!photos.length||(!addTo&&(!$('#cSubject').value.trim()||!$('#cName').value.trim()));}
-$('#cSubject').oninput=updateGo;$('#cName').oninput=updateGo;
+  if(!addTo){$('#cSubject').value='';$('#cName').value='';}updateGo();saveDraft();}
+function updateGo(){$('#cGo').disabled=busyAdd||!photos.length||(!addTo&&(!$('#cSubject').value.trim()||!$('#cName').value.trim()));}
+$('#cSubject').oninput=function(){updateGo();saveDraft();};$('#cName').oninput=function(){updateGo();saveDraft();};
+$('#cCancel').onclick=function(){clearDraft();setPhotos([]);go('home');};
 function showErr(sel,msg){var e=$(sel);e.textContent='⚠️ '+msg;e.classList.remove('hidden');setTimeout(function(){e.scrollIntoView({behavior:'smooth',block:'center'});},50);}
 
 // ---------- Gemini ----------
@@ -456,20 +533,20 @@ function genReport(r,total){var n=r.questions.length;
 $('#cGo').onclick=function(){
   var p=player(),diff=chipVal('#cDiff'),count=+chipVal('#cCount');
   var subj=addTo?addTo.subject:$('#cSubject').value.trim(),title=addTo?addTo.title:$('#cName').value.trim();
-  var imgs=photos.map(function(x){return {mime:x.mime,data:x.data};});var saved=photos.slice(),target=addTo;
+  var saved=photos.slice(),target=addTo,imgs=[];
   var total=target?Math.min(count,20):count;
-  loading(true,'Vaihe 1/2: Tekoäly lukee sivuja… 📖','Luetaan '+imgs.length+' kuva'+(imgs.length>1?'a':'')+'. Tämä kestää yleensä 15–45 sekuntia.');
-  withRetry(function(){return callGemini({stage:'read',images:imgs,grade:p.grade,subject:subj,title:title});})
-  .then(function(rd){
+  loading(true,'Vaihe 1/2: Tekoäly lukee sivuja… 📖','Luetaan '+saved.length+' kuva'+(saved.length>1?'a':'')+'. Tämä kestää yleensä 15–45 sekuntia.');
+  saved.reduce(function(p,x){return p.then(function(){return blobB64(x.blob).then(function(d){imgs.push({mime:x.mime,data:d});});});},Promise.resolve()).then(function(){return withRetry(function(){return callGemini({stage:'read',images:imgs,grade:p.grade,subject:subj,title:title});});})
+  .then(function(rd){imgs=null;
     var e;
-    if(target){e=target;e.sourceText=(e.sourceText?e.sourceText+'\n\n':'')+rd.sourceText;e.summary=(e.summary?e.summary+'\n\n':'')+rd.summary;e.terms=(e.terms||[]).concat(rd.terms);e.pages=(e.pages||0)+imgs.length;}
-    else e={id:KK.uid(),owner:p.id,subject:subj,title:title,created:Date.now(),difficulty:diff,questions:[],sourceText:rd.sourceText,summary:rd.summary,terms:rd.terms,pages:imgs.length};
-    return DB.put('exams',e).then(function(){if(!target)exams.push(e);photos=[];
+    if(target){e=target;e.sourceText=(e.sourceText?e.sourceText+'\n\n':'')+rd.sourceText;e.summary=(e.summary?e.summary+'\n\n':'')+rd.summary;e.terms=(e.terms||[]).concat(rd.terms);e.pages=(e.pages||0)+saved.length;}
+    else e={id:KK.uid(),owner:p.id,subject:subj,title:title,created:Date.now(),difficulty:diff,questions:[],sourceText:rd.sourceText,summary:rd.summary,terms:rd.terms,pages:saved.length};
+    return DB.put('exams',e).then(function(){if(!target)exams.push(e);setPhotos([]);clearDraft();
       e.newText=rd.sourceText;step('Vaihe 2/2: Teksti luettu ✅','Seuraavaksi kysymykset.');
       return makeQuestions(e,total,diff,'Vaihe 2/2: ').then(function(r){delete e.newText;return DB.put('exams',e).then(function(){return {e:e,r:r};});});});
   }).then(function(x){loading(false);var rep=genReport(x.r,total);
     openExam(x.e.id,function(){if(!rep.ok)showErr('#mErr',rep.msg);else if(rep.warn)showErr('#mErr',rep.warn);else toast('✨ '+x.r.questions.length+' tehtävää valmiina!');});
-  }).catch(function(err){loading(false);go('create',{keep:true});photos=saved;renderThumbs();showErr('#cErr',(err.message||String(err))+(err.code==='blurry'?'':' (Lisätietoja: Asetukset → Näytä viimeisin virhe.)'));});
+  }).catch(function(err){loading(false);go('create',{keep:true});setPhotos(saved);renderThumbs();showErr('#cErr',(err.message||String(err))+(err.code==='blurry'?'':' (Lisätietoja: Asetukset → Näytä viimeisin virhe.)'));});
 };
 
 // ---------- koe ----------
@@ -574,7 +651,7 @@ var actx=null;function beep(ok,fan){if(!S.sound)return;try{actx=actx||new (windo
 
 if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js').then(function(r){if(r&&r.update)r.update().catch(function(){});}).catch(function(){});
 window.__kk={go:go,state:cur,S:S};
-init().catch(function(e){document.body.insertAdjacentHTML('afterbegin','<div class="err">Tallennustilaa ei voitu avata ('+esc(e&&e.message)+'). Yksityinen selaustila voi estää sen.</div>');});
+init().catch(function(e){window.__kkStarted=true;window.__kkFatal('Tallennustilaa ei voitu avata ('+(e&&e.message||e)+'). Yksityinen selaustila tai lapsilukko voi estää sen.');});
 })();
 </script>
 </body>
