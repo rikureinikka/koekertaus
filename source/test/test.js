@@ -90,27 +90,85 @@ t('pelikierros: pisteet, putki ja yhteenveto', () => {
   assert.strictEqual(s.stars, 2); assert.deepStrictEqual(s.missed, [r[2].id]);
   assert.ok(s.score > 300);
 });
-t('Gemini-pyyntö: kuvat, skeema, ajattelutaso', () => {
-  const b = KK.buildRequest({ images: [{ mime: 'image/jpeg', data: 'AAA' }], grade: 7, subject: 'Historia', title: 'Ranskan vallankumous', difficulty: 'normaali', count: 20, model: 'gemini-3.8-flash' });
+t('Gemini-pyyntö vaihe 1 (lukeminen): kuvat, ei kysymyksiä, tokenraja, ajattelu', () => {
+  const b = KK.buildRequest({ stage: 'read', images: [{ mime: 'image/jpeg', data: 'AAA' }], grade: 7, subject: 'Historia', title: 'Ranskan vallankumous', model: 'gemini-3.8-flash' });
   assert.strictEqual(b.contents[0].parts[1].inline_data.data, 'AAA');
-  assert.ok(b.contents[0].parts[0].text.includes('7. luokan')); assert.ok(b.contents[0].parts[0].text.includes('Tee 20'));
-  assert.strictEqual(b.generationConfig.responseMimeType, 'application/json');
-  assert.ok(b.generationConfig.responseJsonSchema.required.includes('lahdeteksti'));
+  assert.ok(b.contents[0].parts[0].text.includes('7. luokan'));
+  const sc = b.generationConfig.responseJsonSchema; assert.ok(sc.required.includes('lahdeteksti')); assert.ok(!sc.properties.kysymykset);
+  assert.strictEqual(b.generationConfig.maxOutputTokens, 65536);
   assert.strictEqual(b.generationConfig.thinkingConfig.thinkingLevel, 'low');
-  const b2 = KK.buildRequest({ sourceText: 'TEKSTI', count: 10, avoid: ['vanha?'], schemaField: 'responseSchema', model: 'gemini-2.5-flash-lite' });
-  assert.ok(b2.contents[0].parts[0].text.includes('TEKSTI')); assert.ok(b2.contents[0].parts[0].text.includes('vanha?'));
-  assert.strictEqual(b2.generationConfig.responseSchema.type, 'OBJECT'); assert.ok(!b2.generationConfig.responseSchema.required.includes('lahdeteksti'));
-  assert.ok(!b2.generationConfig.thinkingConfig);
-  assert.ok(!JSON.stringify(b).includes('key'));
+  assert.ok(!JSON.stringify(b).toLowerCase().includes('api-key'));
 });
-t('Gemini-vastauksen jäsennys', () => {
-  const data = { luettavuus: { ok: true }, lahdeteksti: 'L', tiivistelma: 'T', avainkasitteet: [{ kasite: 'Bastilji', selitys: 'vankila' }], kysymykset: raw };
-  const res = KK.parseResponse({ candidates: [{ content: { parts: [{ text: 'ajatus', thought: true }, { text: JSON.stringify(data) }] }, finishReason: 'STOP' }] }, true);
-  assert.strictEqual(res.questions.length, 4); assert.strictEqual(res.summary, 'T'); assert.strictEqual(res.terms[0].term, 'Bastilji');
-  assert.throws(() => KK.parseResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify({ luettavuus: { ok: false, ongelma: 'kuva on sumea' }, kysymykset: [] }) }] } }] }, true), e => e.code === 'blurry' && /sumea/.test(e.message));
-  assert.throws(() => KK.parseResponse({ candidates: [{ content: { parts: [{ text: '{"kysym' }] }, finishReason: 'MAX_TOKENS' }] }, true), e => e.code === 'toolong');
-  assert.throws(() => KK.parseResponse({ promptFeedback: { blockReason: 'SAFETY' } }, true), e => e.code === 'blocked');
-  assert.throws(() => KK.parseResponse({}, true), e => e.code === 'empty');
+t('Gemini-pyyntö vaihe 2 (kysymykset): teksti, ei kuvia, erän koko', () => {
+  const b2 = KK.buildRequest({ stage: 'questions', images: [{ data: 'X' }], sourceText: 'TEKSTI', count: 10, avoid: ['vanha?'], model: 'gemini-3.5-flash-lite' });
+  const txt = b2.contents[0].parts[0].text;
+  assert.strictEqual(b2.contents[0].parts.length, 1); assert.ok(txt.includes('TEKSTI') && txt.includes('vanha?') && txt.includes('täsmälleen 10'));
+  assert.ok(b2.generationConfig.responseJsonSchema.properties.kysymykset);
+  assert.strictEqual(b2.generationConfig.thinkingConfig.thinkingLevel, 'minimal');
+  const b3 = KK.buildRequest({ stage: 'questions', sourceText: 'T', schemaField: 'responseSchema', model: 'gemini-2.5-flash-lite', noThinking: true });
+  assert.strictEqual(b3.generationConfig.responseSchema.type, 'OBJECT'); assert.ok(!b3.generationConfig.thinkingConfig);
+});
+t('ajattelutaso mallin mukaan', () => {
+  assert.strictEqual(KK.thinkingLevelFor('gemini-3.8-flash'), 'low'); assert.strictEqual(KK.thinkingLevelFor('gemini-3.5-flash-lite'), 'minimal');
+  assert.strictEqual(KK.thinkingLevelFor('gemini-4-hydrogen'), 'low'); assert.strictEqual(KK.thinkingLevelFor('gemini-2.5-flash'), null);
+});
+const wrapT = (text, fr, usage) => ({ candidates: [{ content: { parts: [{ text: 'ajatus', thought: true }, { text }] }, finishReason: fr || 'STOP' }], usageMetadata: usage });
+const QJSON = JSON.stringify({ kysymykset: raw.slice(0, 4) });
+t('vastaus: lukuvaihe ja kysymysvaihe', () => {
+  const rd = KK.parseResponse(wrapT(JSON.stringify({ luettavuus: { ok: true }, lahdeteksti: 'Vuonna 1789 Ranskassa puhkesi vallankumous ja kansa valtasi Bastiljin.', tiivistelma: 'T', avainkasitteet: [{ kasite: 'Bastilji', selitys: 'vankila' }] })), 'read');
+  assert.strictEqual(rd.summary, 'T'); assert.strictEqual(rd.terms[0].term, 'Bastilji'); assert.ok(!rd.truncated);
+  const q = KK.parseResponse(wrapT(QJSON, 'STOP', { totalTokenCount: 900 }), 'questions');
+  assert.strictEqual(q.questions.length, 4); assert.strictEqual(q.usage.totalTokenCount, 900);
+  assert.throws(() => KK.parseResponse(wrapT(JSON.stringify({ luettavuus: { ok: false, ongelma: 'kuva on sumea' }, lahdeteksti: '' })), 'read'), e => e.code === 'blurry' && /sumea/.test(e.message));
+});
+t('katkennut JSON (MAX_TOKENS): valmiit kysymykset pelastetaan', () => {
+  const cut = QJSON.slice(0, QJSON.indexOf('"Napoleon"') + 5); // katkeaa yhdistä-tehtävän keskelle
+  const q = KK.parseResponse(wrapT(cut, 'MAX_TOKENS', { thoughtsTokenCount: 60000, candidatesTokenCount: 5000 }), 'questions');
+  assert.ok(q.truncated && q.salvaged); assert.deepStrictEqual(q.questions.map(x => x.type), ['mc', 'tf', 'fill']);
+  // Katkeaa ensimmäisen kysymyksen sisällä → toolong, viesti ei puhu kuvista
+  assert.throws(() => KK.parseResponse(wrapT('{"kysymykset":[{"tyyppi":"monivalinta","kysymys":"Mi', 'MAX_TOKENS'), 'questions'), e => e.code === 'toolong' && !/kuvi/.test(e.message) && e.info.finishReason === 'MAX_TOKENS');
+  // Ajattelu söi koko budjetin → ei tekstiä
+  assert.throws(() => KK.parseResponse({ candidates: [{ content: { parts: [{ text: 'mietin', thought: true }] }, finishReason: 'MAX_TOKENS' }] }, 'questions'), e => e.code === 'toolong');
+  // Ei MAX_TOKENS mutta rikkinäinen JSON loppupäästä → pelastetaan silti
+  const q2 = KK.parseResponse(wrapT(QJSON.slice(0, -3)), 'questions'); assert.strictEqual(q2.questions.length, 4); assert.ok(q2.salvaged);
+  assert.throws(() => KK.parseResponse(wrapT('ei jsonia'), 'questions'), e => e.code === 'parse');
+});
+t('katkennut lukuvaihe: teksti pelastetaan, tiivistelmä merkitään keskeneräiseksi', () => {
+  const full = JSON.stringify({ luettavuus: { ok: true }, lahdeteksti: 'Vuonna 1789 Ranskassa puhkesi vallankumous. Kansa valtasi Bastiljin vankilan.', tiivistelma: 'Tämä on pitkä tiivistelmä joka kat' });
+  const rd = KK.parseResponse(wrapT(full.slice(0, -10), 'MAX_TOKENS'), 'read');
+  assert.ok(rd.sourceText.includes('Bastiljin')); assert.ok(rd.truncated);
+});
+t('repairJson', () => {
+  assert.deepStrictEqual(KK.repairJson('{"a":[1,2,{"b":"x"},{"c":"y'), { a: [1, 2, { b: 'x' }] });
+  assert.deepStrictEqual(KK.repairJson('```json\n{"a":true,"b":[tr'), { a: true });
+  assert.strictEqual(KK.repairJson('ei'), null);
+});
+t('eräsuunnitelma', () => { assert.deepStrictEqual(KK.batchPlan(20), [10, 10]); assert.deepStrictEqual(KK.batchPlan(15), [10, 5]); assert.deepStrictEqual(KK.batchPlan(30), [10, 10, 10]); });
+const mkQs = (n, p) => Array.from({ length: n }, (_, i) => KK.normalizeQuestion({ tyyppi: 'tosi_epatosi', kysymys: p + ' väite ' + i, totta: true, selitys: 's' }));
+const asyncTests = [];
+function at(name, fn) { asyncTests.push([name, fn]); }
+at('erä: katkeaminen → uusi yritys puolella määrällä', async () => {
+  const calls = []; const call = o => { calls.push(o.count); return calls.length === 1 ? Promise.reject(KK.err('toolong', 'x')) : Promise.resolve({ questions: mkQs(o.count, 'a') }); };
+  const r = await KK.runBatch(call, { count: 10 }); assert.deepStrictEqual(calls, [10, 5]); assert.strictEqual(r.questions.length, 5);
+});
+at('erä: aikakatkaisu → yksi uusinta samalla määrällä, sitten virhe', async () => {
+  const calls = []; const call = o => { calls.push(o.count); return Promise.reject(KK.err('timeout', 'x')); };
+  await assert.rejects(KK.runBatch(call, { count: 10 }), e => e.code === 'timeout'); assert.deepStrictEqual(calls, [10, 10]);
+  const c2 = []; await assert.rejects(KK.runBatch(o => { c2.push(1); return Promise.reject(KK.err('key', 'x')); }, { count: 10 })); assert.strictEqual(c2.length, 1);
+});
+at('erät: osittainen onnistuminen säilyy ja tallennetaan erä kerrallaan', async () => {
+  let n = 0; const saved = [];
+  const call = o => { n++; if (n === 3 || n === 4) return Promise.reject(KK.err('server', 'häiriö')); return Promise.resolve({ questions: mkQs(o.count, 'erä' + n) }); };
+  const r = await KK.runBatches(call, { avoid: [] }, [10, 10, 10], add => { saved.push(add.length); });
+  assert.strictEqual(r.questions.length, 20); assert.strictEqual(r.failed, 1); assert.deepStrictEqual(saved, [10, 10]); assert.strictEqual(r.lastError.code, 'server');
+});
+at('erät: kiintiö loppuu → lopetetaan, valmiit säilyvät', async () => {
+  let n = 0; const call = o => { n++; return n === 1 ? Promise.resolve({ questions: mkQs(10, 'x') }) : Promise.reject(KK.err('quota', 'täynnä')); };
+  const r = await KK.runBatches(call, {}, [10, 10, 10]); assert.strictEqual(r.questions.length, 10); assert.ok(r.stopped); assert.strictEqual(n, 2); assert.strictEqual(r.failed, 2);
+});
+at('erät: toistuvat kysymykset karsitaan ja välitetään avoid-listaan', async () => {
+  const avoids = []; const call = o => { avoids.push(o.avoid.length); return Promise.resolve({ questions: mkQs(5, 'sama') }); };
+  const r = await KK.runBatches(call, { avoid: ['vanha'] }, [5, 5]); assert.strictEqual(r.questions.length, 5); assert.deepStrictEqual(avoids, [1, 6]);
 });
 t('HTTP-virheet suomeksi', () => {
   assert.strictEqual(KK.mapHttpError(400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }] } }).code, 'key');
@@ -120,4 +178,5 @@ t('HTTP-virheet suomeksi', () => {
   assert.strictEqual(KK.mapHttpError(503, 'x').code, 'server');
   assert.ok(/kiintiö/.test(KK.mapHttpError(429, '').message));
 });
-console.log(`\n${n - fail}/${n} testiä läpi`); if (fail) process.exit(1);
+(async () => { for (const [name, fn] of asyncTests) { n++; try { await fn(); console.log('ok   ' + name); } catch (e) { fail++; console.log('FAIL ' + name + '\n     ' + e.message); } }
+  console.log(`\n${n - fail}/${n} testiä läpi`); if (fail) process.exit(1); })();

@@ -20,9 +20,11 @@ const QS = [
   { tyyppi: 'aukko', kysymys: 'Vallankumous alkoi vuonna ___.', oikea_vastaus: '1789', selitys: '1789.' },
   { tyyppi: 'tosi_epatosi', kysymys: 'Iskulauseessa oli sana veljeys.', totta: true, selitys: 'Kyllä.' }
 ];
-const full = { luettavuus: { ok: true }, lahdeteksti: 'Vuonna 1789 Ranskassa puhkesi vallankumous. Kansa valtasi Bastiljin vankilan 14. heinäkuuta.', tiivistelma: '• Vallankumous alkoi 1789.\n• Bastilji vallattiin 14.7.\n• Iskulause: vapaus, tasa-arvo, veljeys.', avainkasitteet: [{ kasite: 'Bastilji', selitys: 'Pariisin vankila' }], kysymykset: QS };
+const full = { luettavuus: { ok: true }, lahdeteksti: 'Vuonna 1789 Ranskassa puhkesi vallankumous. Kansa valtasi Bastiljin vankilan 14. heinäkuuta.', tiivistelma: '• Vallankumous alkoi 1789.\n• Bastilji vallattiin 14.7.\n• Iskulause: vapaus, tasa-arvo, veljeys.', avainkasitteet: [{ kasite: 'Bastilji', selitys: 'Pariisin vankila' }] };
+const b1 = JSON.stringify({ kysymykset: QS.slice(0, 8) }); const b1cut = b1.slice(0, b1.lastIndexOf('"vaihtoehdot"') + 20); // 8. kysymys katkeaa
+const wrapRaw = (text, fr, usage) => JSON.stringify({ candidates: [{ content: { parts: [{ text }], role: 'model' }, finishReason: fr }], usageMetadata: usage });
 const more = { kysymykset: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => ({ tyyppi: 'tosi_epatosi', kysymys: 'Lisäväite numero ' + i + ' on totta.', totta: i % 2 === 0, selitys: 'Testi.' })) };
-const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }], role: 'model' }, finishReason: 'STOP' }] });
+const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }], role: 'model' }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 1500, candidatesTokenCount: 2000, totalTokenCount: 3500 } });
 
 (async () => {
   const b = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: 'new', args: ['--no-sandbox'] });
@@ -91,10 +93,18 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   // Onnistuu (ensin skeemavirhe → varapolku)
   mock.push({ status: 400, body: JSON.stringify({ error: { code: 400, message: 'Invalid JSON payload received. Unknown name "responseJsonSchema"', status: 'INVALID_ARGUMENT' } }) });
   mock.push({ status: 200, body: wrap(full) });
+  mock.push({ status: 200, body: wrapRaw(b1cut, 'MAX_TOKENS', { promptTokenCount: 900, thoughtsTokenCount: 60000, candidatesTokenCount: 5536, totalTokenCount: 66436 }) });
+  mock.push({ status: 200, body: wrapRaw('', 'MAX_TOKENS', { thoughtsTokenCount: 65536 }) });
+  mock.push({ status: 200, body: wrap({ kysymykset: QS.slice(7) }) });
   const before = reqs.length;
   await pg.click('#cGo'); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam', { timeout: 15000 });
   const posts = reqs.slice(before).filter(r => r.method === 'POST');
   const body = JSON.parse(posts[0].body), body2 = JSON.parse(posts[1].body);
+  ok(posts.length === 5, 'kutsut: luku (+varapolku) ja kysymyserät uusintoineen: ' + posts.length);
+  const qb = posts.slice(2).map(p => JSON.parse(p.body));
+  ok(qb.every(b => !b.contents[0].parts.some(p => p.inline_data)), 'kysymyserät ilman kuvia');
+  ok(qb[0].contents[0].parts[0].text.includes('täsmälleen 10') && qb[2].contents[0].parts[0].text.includes('täsmälleen 5'), 'katkennut erä uusitaan pienempänä (10 → 5)');
+  ok(body.generationConfig.maxOutputTokens === 65536 && body.generationConfig.thinkingConfig.thinkingLevel === 'low', 'maxOutputTokens 65536, thinkingLevel low');
   ok(body.contents[0].parts.some(p => p.inline_data && p.inline_data.mime_type === 'image/jpeg'), 'kuva lähetetään inline_data-kenttänä');
   const imgB64 = body.contents[0].parts.find(p => p.inline_data).inline_data.data;
   ok(imgB64.length * 0.75 < 600e3, 'kuva pienennetty (' + Math.round(imgB64.length * 0.75 / 1024) + ' kt)');
@@ -103,6 +113,11 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   ok(body.contents[0].parts[0].text.includes('7. luokan'), 'Laurin luokka promptissa');
   console.log('   stats:', await txt('#eStats'), JSON.stringify(errs)); ok((await txt('#eStats')).startsWith('12 kysymystä'), 'koe tallennettu, 12 kysymystä');
   await shot('exam');
+  await pg.click('nav [data-go=settings]'); await sleep(200); await pg.click('#sDbg'); await sleep(100);
+  const dbg = await txt('#sDbgOut');
+  ok(dbg.includes('MAX_TOKENS') && dbg.includes('thoughtsTokenCount') && dbg.includes('"salvaged":true') && !dbg.includes('TEST-KEY'), 'vianetsintä näyttää finishReasonin ja usageMetadatan, ei avainta');
+  await shot('debug-panel');
+  await pg.click('nav [data-go=home]'); await sleep(200); await pg.click('#myExams [data-exam]'); await sleep(300);
   await pg.click('#eSummary'); await sleep(200);
   ok((await txt('#sText')).includes('Bastilji vallattiin') && (await txt('#sTerms')).includes('Pariisin vankila'), 'tiivistelmä ja käsitteet');
   await shot('summary');
@@ -164,11 +179,28 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   ok((await txt('#myExams')).includes('⭐⭐⭐') && /Taso \d/.test(await txt('#pcLvl')), 'Laurin tähdet ja taso');
   await shot('home');
 
+  // Kaikki erät epäonnistuvat → teksti säilyy, voi yrittää uudelleen
+  await pg.click('#v-home [data-go=create]'); await sleep(200);
+  await pg.type('#cSubject', 'Biologia'); await pg.type('#cName', 'Solut');
+  await (await pg.$('#camIn')).uploadFile(path.join(__dirname, 'page1.jpg'));
+  await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
+  await pg.$$eval('#cCount .chip', cs => cs.find(c => c.dataset.v === '15').click());
+  mock.push({ status: 200, body: wrap(full) }); for (let i = 0; i < 4; i++) mock.push({ status: 503, body: '{"error":{"code":503,"message":"The model is overloaded.","status":"UNAVAILABLE"}}' });
+  await pg.$eval('#cGo', e => e.click()); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam' && !document.querySelector('#mErr').classList.contains('hidden'), { timeout: 15000 });
+  const me = await txt('#mErr'); console.log('   ', me);
+  ok(/häiriö/.test(me) && /Tee 10 lisää/.test(me) && !/vähemmillä kuvilla/.test(me), 'oikea syy + ohje, ei "vähemmillä kuvilla"');
+  ok(await pg.$eval('#ePlay', e => e.disabled) && (await txt('#eStats')).startsWith('0 kysymystä'), 'koe ja teksti tallessa, pelaaminen estetty kunnes kysymyksiä on');
+  mock.push({ status: 200, body: wrap(more) });
+  await pg.$eval('#eMore', e => e.click()); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam' && document.querySelector('#eStats').innerText.startsWith('10'), { timeout: 10000 });
+  ok(true, 'uusi yritys "Tee 10 lisää" onnistui ilman kuvia');
+  await shot('partial');
+  await pg.click('nav [data-go=home]'); await sleep(300);
+
   // Offline: sovellus latautuu välimuistista
   await pg.evaluate(() => navigator.serviceWorker.ready); await sleep(500);
   await pg.setOfflineMode(true); await pg.reload(); await sleep(800);
   ok((await txt('#myExams')).includes('Ranskan vallankumous'), 'offline: sovellus ja kokeet toimivat');
-  await pg.click('#myExams [data-exam]'); await sleep(300);
+  await pg.$$eval('#myExams [data-exam]', c => c[c.length - 1].click()); await sleep(300);
   await pg.$eval('#eMore', e => e.click()); await sleep(400);
   ok((await txt('#mErr')).includes('verkkoyhteyttä'), 'offline: selkeä virhe uusia kysymyksiä tehtäessä');
   await pg.setOfflineMode(false);
@@ -176,7 +208,7 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   ok((await txt('#v-help')).includes('aistudio.google.com/apikey'), 'ohje sisältää avainlinkin');
   await shot('help');
 
-  errs.splice(0, errs.length, ...errs.filter(e => !/Failed to load resource: the server responded with a status of (429|400)/.test(e) && !/ERR_INTERNET_DISCONNECTED/.test(e))); ok(errs.length === 0, 'ei JS-virheitä' + (errs.length ? ': ' + errs.join(' | ') : ''));
+  errs.splice(0, errs.length, ...errs.filter(e => !/Failed to load resource: the server responded with a status of (429|400|503)/.test(e) && !/ERR_INTERNET_DISCONNECTED/.test(e))); ok(errs.length === 0, 'ei JS-virheitä' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close(); srv.close();
   console.log(fails ? `\n${fails} epäonnistui` : '\nKaikki e2e-tarkistukset läpi'); process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

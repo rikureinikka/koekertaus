@@ -172,9 +172,12 @@
   KK.endMessage = function (acc) { return acc >= 0.9 ? 'Olet valmis kokeeseen! 🏆' : acc >= 0.75 ? 'Tosi hyvä! Vielä vähän kertausta.' : acc >= 0.5 ? 'Hyvä alku! Kertaa väärät, niin muistat ne.' : 'Harjoitus tekee mestarin – kokeile uudestaan!'; };
 
   // ---------- Gemini ----------
+  // Kaksi vaihetta: 'read' = kuvat → lähdeteksti + tiivistelmä + käsitteet; 'questions' = tallennettu teksti → kysymyserä (ei kuvia)
+  KK.MAX_OUTPUT_TOKENS = 65536; // gemini-3.8-flash ja gemini-3.5-flash-lite: output token limit 65 536
+  KK.BATCH_SIZE = 10;
   KK.GRADE_TEXT = function (grade) { return grade ? grade + '. luokan oppilas (peruskoulu)' : 'peruskoulun oppilas'; };
-  KK.responseSchema = function (withSource) {
-    var qItem = {
+  KK.questionSchema = function () {
+    return {
       type: 'object',
       properties: {
         tyyppi: { type: 'string', enum: ['monivalinta', 'tosi_epatosi', 'aukko', 'yhdista'] },
@@ -183,47 +186,60 @@
         oikea_vastaus: { type: 'string', description: 'Monivalinnassa oikean vaihtoehdon teksti täsmälleen, aukkotehtävässä puuttuva sana' },
         totta: { type: 'boolean', description: 'Tosi/epätosi-väitteessä onko väite totta' },
         hyvaksytyt: { type: 'array', items: { type: 'string' }, description: 'Aukkotehtävässä muut hyväksyttävät kirjoitusasut' },
-        parit: { type: 'array', items: { type: 'object', properties: { vasen: { type: 'string' }, oikea: { type: 'string' } }, required: ['vasen', 'oikea'] }, description: 'Yhdistä-tehtävässä 3–5 paria (käsite – selitys)' },
-        selitys: { type: 'string', description: 'Lyhyt 1–2 lauseen selitys, joka näytetään vastauksen jälkeen' },
+        parit: { type: 'array', items: { type: 'object', properties: { vasen: { type: 'string' }, oikea: { type: 'string' } }, required: ['vasen', 'oikea'] }, description: 'Yhdistä-tehtävässä 3–5 paria' },
+        selitys: { type: 'string', description: 'Lyhyt 1–2 lauseen selitys' },
         vaikeus: { type: 'string', enum: ['helppo', 'normaali', 'haastava'] }
       },
       required: ['tyyppi', 'kysymys', 'selitys']
     };
-    var props = { kysymykset: { type: 'array', items: qItem } };
-    var req = ['kysymykset'];
-    if (withSource) {
-      props.luettavuus = { type: 'object', properties: { ok: { type: 'boolean' }, ongelma: { type: 'string', description: 'Jos kuvat ovat epätarkkoja, liian tummia, rajattuja tai niissä ei ole oppikirjan tekstiä, kerro lyhyesti suomeksi' } }, required: ['ok'] };
-      props.lahdeteksti = { type: 'string', description: 'Kuvien teksti puhtaaksi kirjoitettuna (otsikot, kappaleet, kuvatekstit)' };
-      props.tiivistelma = { type: 'string', description: 'Selkeä tiivistelmä koealueesta oppilaalle, 5–12 ranskalaista viivaa tai lyhyttä kappaletta' };
-      props.avainkasitteet = { type: 'array', items: { type: 'object', properties: { kasite: { type: 'string' }, selitys: { type: 'string' } }, required: ['kasite', 'selitys'] } };
-      req = ['luettavuus', 'lahdeteksti', 'tiivistelma', 'kysymykset'];
-    }
-    return { type: 'object', properties: props, required: req };
+  };
+  KK.responseSchema = function (stage) {
+    if (stage === 'read') return {
+      type: 'object',
+      properties: {
+        luettavuus: { type: 'object', properties: { ok: { type: 'boolean' }, ongelma: { type: 'string', description: 'Jos kuvat ovat epätarkkoja, tummia, rajattuja tai niissä ei ole oppimateriaalia, kerro lyhyesti suomeksi' } }, required: ['ok'] },
+        lahdeteksti: { type: 'string', description: 'Kuvien teksti puhtaaksi kirjoitettuna (otsikot, kappaleet, kuvatekstit)' },
+        tiivistelma: { type: 'string', description: 'Selkeä tiivistelmä koealueesta oppilaalle, 5–12 ranskalaista viivaa' },
+        avainkasitteet: { type: 'array', items: { type: 'object', properties: { kasite: { type: 'string' }, selitys: { type: 'string' } }, required: ['kasite', 'selitys'] } }
+      },
+      required: ['luettavuus', 'lahdeteksti', 'tiivistelma', 'avainkasitteet']
+    };
+    return { type: 'object', properties: { kysymykset: { type: 'array', items: KK.questionSchema() } }, required: ['kysymykset'] };
   };
   KK.buildPrompt = function (o) {
-    var lines = [];
-    lines.push('Olet suomalainen opettaja, joka tekee kokeeseen valmistavia harjoitustehtäviä. Oppija: ' + KK.GRADE_TEXT(o.grade) + '.');
-    lines.push('Oppiaine: ' + (o.subject || '-') + '. Koealue: ' + (o.title || '-') + '.');
-    if (o.withSource) lines.push('Liitteenä on valokuvia oppikirjan sivuista. Lue kuvista kaikki teksti (myös kuvatekstit ja laatikot) ja kirjoita se kenttään lahdeteksti. Tee tiivistelmä ja avainkäsitteet.');
-    else lines.push('Alla on koealueen lähdeteksti, joka on luettu oppikirjan sivuilta.\n---\n' + o.sourceText + '\n---');
-    lines.push('Tee ' + o.count + ' uutta harjoitustehtävää. Vaikeustaso: ' + o.difficulty + '.');
-    lines.push('Säännöt: Käytä VAIN lähdemateriaalin tietoja, älä keksi asioita. Kirjoita hyvällä, ikätasolle sopivalla suomen kielellä. Sekoita tyyppejä: noin 45 % monivalinta (3–4 uskottavaa vaihtoehtoa, vain yksi oikea), 20 % tosi_epatosi, 20 % aukko (yksi selvä puuttuva sana tai luku, merkitse ___), 15 % yhdista (3–5 paria käsite–selitys tai henkilö–teko). Jokaiseen tehtävään lyhyt kannustava selitys, joka kertoo miksi vastaus on oikea. Kata koko koealue tasaisesti ja painota tärkeitä asioita.');
-    if (o.avoid && o.avoid.length) lines.push('Älä toista näitä jo olemassa olevia kysymyksiä:\n- ' + o.avoid.slice(0, 80).join('\n- '));
-    if (o.withSource) lines.push('Jos kuvat ovat lukukelvottomia tai niissä ei ole oppimateriaalia, aseta luettavuus.ok=false, kerro ongelma ja palauta tyhjä kysymyslista.');
-    return lines.join('\n\n');
+    var L = [];
+    L.push('Olet suomalainen opettaja, joka tekee kokeeseen valmistavaa materiaalia. Oppija: ' + KK.GRADE_TEXT(o.grade) + '.');
+    L.push('Oppiaine: ' + (o.subject || '-') + '. Koealue: ' + (o.title || '-') + '.');
+    if (o.stage === 'read') {
+      L.push('Liitteenä on valokuvia oppikirjan sivuista. Lue kuvista kaikki koealueen teksti (myös kuvatekstit ja laatikot) ja kirjoita se kenttään lahdeteksti. Jätä pois sivunumerot ja toistuvat ylä-/alatunnisteet. Tee sitten tiivistelmä ja 5–15 avainkäsitettä selityksineen. Älä tee kysymyksiä tässä vaiheessa.');
+      L.push('Jos kuvat ovat lukukelvottomia tai niissä ei ole oppimateriaalia, aseta luettavuus.ok=false ja kerro ongelma.');
+    } else {
+      L.push('Alla on koealueen lähdeteksti, joka on luettu oppikirjan sivuilta.\n---\n' + o.sourceText + '\n---');
+      L.push('Tee täsmälleen ' + o.count + ' uutta harjoitustehtävää. Vaikeustaso: ' + o.difficulty + '.');
+      L.push('Säännöt: Käytä VAIN lähdetekstin tietoja, älä keksi asioita. Kirjoita hyvällä, ikätasolle sopivalla suomen kielellä. Sekoita tyyppejä: noin 45 % monivalinta (3–4 uskottavaa vaihtoehtoa, vain yksi oikea), 20 % tosi_epatosi, 20 % aukko (yksi selvä puuttuva sana tai luku, merkitse ___), 15 % yhdista (3–5 paria). Jokaiseen tehtävään lyhyt selitys (1–2 lausetta), miksi vastaus on oikea. Kata koealue tasaisesti ja painota tärkeitä asioita.' + (o.focus ? ' ' + o.focus : ''));
+      if (o.avoid && o.avoid.length) L.push('Älä toista näitä jo olemassa olevia kysymyksiä:\n- ' + o.avoid.slice(-60).join('\n- '));
+    }
+    return L.join('\n\n');
   };
-  // images: [{mime, data(base64)}]
+  KK.thinkingLevelFor = function (model) {
+    model = model || KK.DEFAULT_MODEL;
+    if (!/^gemini-([3-9]|\d\d)/.test(model)) return null; // vanhemmat mallit: ei thinkingLevel-kenttää
+    // Dokumentaatio 11/2026: gemini-3.8-flash ja Gemini 4: low/medium/high (minimal → virhe); 3.5/3.6/3.1 flash(-lite): minimal tuettu
+    if (/^gemini-(3\.8|4)|pro/.test(model)) return 'low';
+    return 'minimal';
+  };
+  KK.supportsThinkingLevel = function (model) { return !!KK.thinkingLevelFor(model); };
+  // o: {stage:'read'|'questions', images, sourceText, grade, subject, title, count, difficulty, avoid, model, schemaField}
   KK.buildRequest = function (o) {
-    var withSource = !!(o.images && o.images.length);
-    var parts = [{ text: KK.buildPrompt({ grade: o.grade, subject: o.subject, title: o.title, count: o.count || 20, difficulty: o.difficulty || 'normaali', sourceText: o.sourceText, avoid: o.avoid, withSource: withSource }) }];
-    (o.images || []).forEach(function (im) { parts.push({ inline_data: { mime_type: im.mime || 'image/jpeg', data: im.data } }); });
-    var gc = { responseMimeType: 'application/json' };
-    if (o.schemaField === 'responseSchema') gc.responseSchema = KK.toOpenApiSchema(KK.responseSchema(withSource));
-    else gc.responseJsonSchema = KK.responseSchema(withSource);
-    if (KK.supportsThinkingLevel(o.model)) gc.thinkingConfig = { thinkingLevel: 'low' };
+    var stage = o.stage || ((o.images && o.images.length) ? 'read' : 'questions');
+    var parts = [{ text: KK.buildPrompt({ stage: stage, grade: o.grade, subject: o.subject, title: o.title, count: o.count || KK.BATCH_SIZE, difficulty: o.difficulty || 'normaali', sourceText: o.sourceText, avoid: o.avoid, focus: o.focus }) }];
+    if (stage === 'read') (o.images || []).forEach(function (im) { parts.push({ inline_data: { mime_type: im.mime || 'image/jpeg', data: im.data } }); });
+    var gc = { responseMimeType: 'application/json', maxOutputTokens: KK.MAX_OUTPUT_TOKENS };
+    if (o.schemaField === 'responseSchema') gc.responseSchema = KK.toOpenApiSchema(KK.responseSchema(stage));
+    else gc.responseJsonSchema = KK.responseSchema(stage);
+    var tl = o.noThinking ? null : KK.thinkingLevelFor(o.model); if (tl) gc.thinkingConfig = { thinkingLevel: tl };
     return { contents: [{ role: 'user', parts: parts }], generationConfig: gc };
   };
-  KK.supportsThinkingLevel = function (model) { return /^gemini-([3-9]|\d\d)/.test(model || KK.DEFAULT_MODEL); };
   // Varapolku: vanha responseSchema (OpenAPI-osajoukko, tyypit isoilla kirjaimilla)
   KK.toOpenApiSchema = function (s) {
     if (Array.isArray(s)) return s.map(KK.toOpenApiSchema);
@@ -235,6 +251,8 @@
 
   function err(code, msg, detail) { var e = new Error(msg); e.code = code; e.detail = detail; return e; }
   KK.err = err;
+  // Ohimenevät virheet, jotka kannattaa yrittää kerran uudelleen
+  KK.isRetryable = function (e) { return !!e && ['net', 'timeout', 'server', 'parse', 'empty', 'toolong'].indexOf(e.code) >= 0; };
   KK.mapHttpError = function (status, body) {
     var m = '', reason = '';
     try { var j = typeof body === 'string' ? JSON.parse(body) : body; m = (j && j.error && j.error.message) || ''; reason = JSON.stringify((j && j.error && j.error.details) || '') + ' ' + ((j && j.error && j.error.status) || ''); } catch (e) { m = String(body || '').slice(0, 200); }
@@ -244,31 +262,97 @@
     if (status === 403 || /PERMISSION_DENIED/i.test(all)) return err('key', 'API-avaimella ei ole oikeutta Gemini-palveluun. Tee uusi avain osoitteessa aistudio.google.com/apikey.', m);
     if (status === 404 || /not found|is not supported/i.test(all)) return err('model', 'Tekoälymallia ei löytynyt. Valitse Asetuksista toinen malli.', m);
     if (status === 400 && /location|region|country/i.test(all)) return err('region', 'Gemini ei ole käytettävissä tällä alueella tai tilillä.', m);
-    if (status === 400 && /schema|Unknown name|Invalid JSON payload/i.test(all)) return err('schema', 'Tekoälypalvelu ei hyväksynyt pyyntöä.', m);
-    if (status === 400 && /image|inline_data|too large|size/i.test(all)) return err('image', 'Kuvien lähetys epäonnistui. Kokeile vähemmillä tai pienemmillä kuvilla.', m);
+    if (status === 400 && /schema|Unknown name|Invalid JSON payload|thinking/i.test(all)) return err('schema', 'Tekoälypalvelu ei hyväksynyt pyynnön asetuksia.', m);
+    if (status === 400 && /image|inline_data|too large|payload size|request size/i.test(all)) return err('image', 'Kuvien lähetys epäonnistui (kuvat liian suuria). Kokeile vähemmillä kuvilla.', m);
     if (status >= 500) return err('server', 'Tekoälypalvelussa on häiriö. Yritä hetken päästä uudelleen.', m);
     return err('http', 'Tekoälypalvelu palautti virheen (' + status + ').', m);
   };
-  KK.parseResponse = function (json, withSource) {
-    if (json && json.promptFeedback && json.promptFeedback.blockReason) throw err('blocked', 'Tekoäly kieltäytyi käsittelemästä kuvia (' + json.promptFeedback.blockReason + '). Kokeile muita sivuja.');
-    var c = json && json.candidates && json.candidates[0];
-    if (!c) throw err('empty', 'Tekoäly ei palauttanut vastausta. Yritä uudelleen.');
-    if (c.finishReason === 'SAFETY' || c.finishReason === 'PROHIBITED_CONTENT') throw err('blocked', 'Tekoäly esti vastauksen. Kokeile muita sivuja.');
-    var text = ((c.content && c.content.parts) || []).filter(function (p) { return p.text && !p.thought; }).map(function (p) { return p.text; }).join('');
-    if (!text) throw err('empty', 'Tekoäly ei palauttanut tehtäviä. Yritä uudelleen.');
-    var data;
-    try { data = JSON.parse(text); } catch (e) {
-      var m = text.match(/\{[\s\S]*\}/); try { data = m && JSON.parse(m[0]); } catch (e2) { data = null; }
-      if (!data) throw err(c.finishReason === 'MAX_TOKENS' ? 'toolong' : 'parse', c.finishReason === 'MAX_TOKENS' ? 'Vastaus jäi kesken (liian pitkä). Kokeile vähemmillä sivuilla tai pienemmällä kysymysmäärällä.' : 'Tekoälyn vastausta ei voitu lukea. Yritä uudelleen.');
+
+  // Katkenneen JSONin pelastus: etsitään viimeinen kohta, jossa arvo päättyi kokonaan, ja suljetaan avoimet sulut
+  KK.repairJson = function (text) {
+    var s = String(text || ''), start = s.indexOf('{'); if (start < 0) return null; s = s.slice(start);
+    var stack = [], inStr = false, esc = false, cuts = [];
+    for (var i = 0; i < s.length; i++) {
+      var c = s[i];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') { inStr = false; cuts.push([i + 1, stack.slice()]); } continue; }
+      if (c === '"') inStr = true;
+      else if (c === '{' || c === '[') stack.push(c === '{' ? '}' : ']');
+      else if (c === '}' || c === ']') { stack.pop(); cuts.push([i + 1, stack.slice()]); if (!stack.length) break; }
+      else if (c === ',') cuts.push([i, stack.slice()]);
+      else if (/[0-9el]/.test(c) && /[,\]}\s]/.test(s[i + 1] || ' ')) cuts.push([i + 1, stack.slice()]); // luvut, true/false/null
     }
-    if (withSource && data.luettavuus && data.luettavuus.ok === false) throw err('blurry', 'Kuvista ei saatu selvää: ' + (data.luettavuus.ongelma || 'kuvat ovat epätarkkoja tai tummia') + '. Ota kuvat uudelleen hyvässä valossa ja suoraan ylhäältä.');
-    var qs = KK.normalizeQuestions(data.kysymykset);
-    if (!qs.length) throw err(withSource ? 'blurry' : 'empty', withSource ? 'Kuvista ei saatu tehtyä tehtäviä. Varmista, että kuvat ovat tarkkoja ja teksti näkyy kokonaan.' : 'Uusia tehtäviä ei syntynyt. Yritä uudelleen.');
-    return {
-      questions: qs,
-      sourceText: str(data.lahdeteksti), summary: str(data.tiivistelma),
-      terms: (data.avainkasitteet || []).map(function (t) { return { term: str(t.kasite), def: str(t.selitys) }; }).filter(function (t) { return t.term; })
-    };
+    for (var k = cuts.length - 1, tries = 0; k >= 0 && tries < 400; k--, tries++) {
+      var cand = s.slice(0, cuts[k][0]).replace(/,\s*$/, '') + cuts[k][1].slice().reverse().join('');
+      try { return JSON.parse(cand); } catch (e) { /* kokeillaan aiempaa kohtaa */ }
+    }
+    return null;
+  };
+
+  // Palauttaa {stage, data, finishReason, usage, truncated, salvaged, text}
+  KK.parseResponse = function (json, stage) {
+    if (stage === true) stage = 'read'; if (!stage || stage === false) stage = 'questions';
+    var info = { stage: stage, finishReason: null, usage: json && json.usageMetadata || null, truncated: false, salvaged: false };
+    function fail(code, msg) { var e = err(code, msg); e.info = info; throw e; }
+    if (json && json.promptFeedback && json.promptFeedback.blockReason) fail('blocked', 'Tekoäly kieltäytyi käsittelemästä sisältöä (' + json.promptFeedback.blockReason + '). Kokeile muita sivuja.');
+    var c = json && json.candidates && json.candidates[0];
+    if (!c) fail('empty', 'Tekoäly ei palauttanut vastausta.');
+    info.finishReason = c.finishReason || null;
+    if (c.finishReason === 'SAFETY' || c.finishReason === 'PROHIBITED_CONTENT' || c.finishReason === 'RECITATION') fail('blocked', 'Tekoäly esti vastauksen (' + c.finishReason + '). Kokeile muita sivuja.');
+    var text = ((c.content && c.content.parts) || []).filter(function (p) { return p.text && !p.thought; }).map(function (p) { return p.text; }).join('');
+    info.textTail = text.slice(-300); info.textLength = text.length;
+    info.truncated = c.finishReason === 'MAX_TOKENS';
+    if (!text) fail(info.truncated ? 'toolong' : 'empty', info.truncated ? 'Tekoälyn vastaus katkesi ennen kuin siihen tuli sisältöä (tokenraja täyttyi).' : 'Tekoäly palautti tyhjän vastauksen.');
+    var data = null;
+    try { data = JSON.parse(text); } catch (e) { data = KK.repairJson(text); if (data) info.salvaged = true; }
+    if (!data) fail(info.truncated ? 'toolong' : 'parse', info.truncated ? 'Tekoälyn vastaus katkesi kesken (tokenraja täyttyi).' : 'Tekoälyn vastausta ei voitu lukea (viallinen JSON).');
+    info.data = data;
+    if (stage === 'read') {
+      if (data.luettavuus && data.luettavuus.ok === false) fail('blurry', 'Kuvista ei saatu selvää: ' + (data.luettavuus.ongelma || 'kuvat ovat epätarkkoja tai tummia') + '. Ota kuvat uudelleen hyvässä valossa ja suoraan ylhäältä.');
+      info.sourceText = str(data.lahdeteksti); info.summary = str(data.tiivistelma);
+      info.terms = (data.avainkasitteet || []).map(function (t) { return { term: str(t && t.kasite), def: str(t && t.selitys) }; }).filter(function (t) { return t.term; });
+      if (info.sourceText.length < 40) fail(info.truncated ? 'toolong' : 'blurry', info.truncated ? 'Tekoälyn vastaus katkesi kesken tekstin lukemisen.' : 'Kuvista ei löytynyt luettavaa tekstiä. Varmista, että sivu on tarkka ja kokonaan kuvassa.');
+      if (info.truncated && !info.summary) info.summary = '(Tiivistelmä jäi kesken.)';
+      return info;
+    }
+    info.questions = KK.normalizeQuestions(data.kysymykset);
+    if (!info.questions.length) fail(info.truncated ? 'toolong' : 'empty', info.truncated ? 'Tekoälyn vastaus katkesi ennen ensimmäistä valmista kysymystä.' : 'Tekoäly ei palauttanut kelvollisia kysymyksiä.');
+    return info;
+  };
+  // Kysymyserien koot: 20 → [10,10], 15 → [10,5], 30 → [10,10,10]
+  KK.batchPlan = function (total, size) { size = size || KK.BATCH_SIZE; var out = []; while (total > 0) { out.push(Math.min(size, total)); total -= size; } return out; };
+
+  // Yksi erä uusintayrityksineen. call(o) → Promise<info>. Katkeamisessa yritetään puolella määrällä.
+  KK.runBatch = function (call, o, log) {
+    function attempt(count, tryNo) {
+      return call(Object.assign({}, o, { count: count })).then(function (info) {
+        if (log) log({ ok: true, count: count, tryNo: tryNo, info: info });
+        return info;
+      }, function (e) {
+        if (log) log({ ok: false, count: count, tryNo: tryNo, error: e });
+        if (tryNo >= 2 || !KK.isRetryable(e)) throw e;
+        var next = e.code === 'toolong' ? Math.max(3, Math.ceil(count / 2)) : count;
+        return attempt(next, tryNo + 1);
+      });
+    }
+    return attempt(o.count, 1);
+  };
+  // Erät peräkkäin; onBatch(questions) tallentaa välitulokset. Palauttaa {questions, failed, lastError}
+  KK.runBatches = function (call, o, plan, onBatch, log) {
+    var all = [], failed = 0, lastError = null, avoid = (o.avoid || []).slice();
+    return plan.reduce(function (p, count, idx) {
+      return p.then(function () {
+        if (o.onProgress) o.onProgress(idx, plan.length);
+        return KK.runBatch(call, Object.assign({}, o, { count: count, avoid: avoid.slice() }), log).then(function (info) {
+          var have = {}; all.forEach(function (q) { have[q.type + '|' + KK.normText(q.q)] = 1; }); (o.avoid || []).forEach(function (t) { have['*' + KK.normText(t)] = 1; });
+          var add = info.questions.filter(function (q) { return !have[q.type + '|' + KK.normText(q.q)] && !have['*' + KK.normText(q.q)]; });
+          all = all.concat(add); add.forEach(function (q) { avoid.push(q.q); });
+          return onBatch ? onBatch(add) : null;
+        }, function (e) {
+          failed++; lastError = e;
+          if (['key', 'quota', 'model', 'region', 'offline', 'nokey', 'blocked'].indexOf(e.code) >= 0) { failed += plan.length - idx - 1; throw { stop: true, e: e }; }
+        });
+      });
+    }, Promise.resolve()).then(function () { return { questions: all, failed: failed, lastError: lastError }; }, function (x) { if (x && x.stop) return { questions: all, failed: failed, lastError: x.e, stopped: true }; throw x; });
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = KK; else root.KK = KK;
