@@ -1,0 +1,17 @@
+{
+  "name": "Koekertaus",
+  "short_name": "Koekertaus",
+  "description": "Kuvaa koealue ja harjoittele kokeeseen pelaamalla",
+  "lang": "fi",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f1ff",
+  "theme_color": "#6c3cf0",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

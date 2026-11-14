@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6c3cf0">
+<meta name="description" content="Koekertaus – kuvaa koealue, harjoittele pelillä">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Koekertaus</title>
+<style>
+:root{--bg:#f4f1ff;--card:#fff;--ink:#231942;--muted:#6b6286;--pri:#6c3cf0;--pri2:#8f6bff;--ok:#1fb86a;--bad:#ff5a5f;--warn:#ffb020;--sun:#ffd23f;--r:20px;--shadow:0 4px 0 rgba(35,25,66,.12),0 8px 24px rgba(35,25,66,.08)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-padding:80px 0 110px}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{min-height:100vh;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:linear-gradient(135deg,var(--pri),#a04cf0);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 12px rgba(0,0,0,.15)}
+header h1{font-size:20px;margin:0;flex:1;letter-spacing:.3px}
+#playerChip{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:999px;padding:6px 12px 6px 6px;font:inherit;font-weight:700;min-height:44px}
+#playerChip .av{font-size:24px;background:#fff;border-radius:50%;width:34px;height:34px;display:grid;place-items:center}
+#playerChip small{display:block;font-weight:500;font-size:12px;opacity:.9;line-height:1}
+main{max-width:640px;margin:0 auto;padding:16px}
+.view{display:none}.view.on{display:block;animation:fade .2s}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+h2{font-size:24px;margin:8px 0 14px}h3{font-size:19px;margin:18px 0 10px}
+.card{background:var(--card);border-radius:var(--r);padding:16px;margin:0 0 14px;box-shadow:var(--shadow)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:56px;border:0;border-radius:16px;padding:12px 18px;font:inherit;font-weight:800;font-size:18px;color:#fff;background:var(--pri);box-shadow:0 4px 0 #4a22b8;cursor:pointer;margin:8px 0;text-decoration:none}
+.btn:active{transform:translateY(3px);box-shadow:0 1px 0 #4a22b8}
+.btn.sec{background:#fff;color:var(--pri);box-shadow:0 4px 0 #d9cffb;border:2px solid #e3dafd}
+.btn.ok{background:var(--ok);box-shadow:0 4px 0 #13834a}.btn.warn{background:#ff9f1c;box-shadow:0 4px 0 #c97300}.btn.bad{background:var(--bad);box-shadow:0 4px 0 #c43237}
+.btn.small{min-height:44px;font-size:16px;width:auto;display:inline-flex;margin:4px 6px 4px 0}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.row{display:flex;gap:10px}.row>*{flex:1}
+label{display:block;font-weight:700;margin:12px 0 6px}
+input[type=text],input[type=password],select,textarea{width:100%;font:inherit;font-size:18px;padding:14px;border-radius:14px;border:2px solid #ddd3fb;background:#fff;color:var(--ink);min-height:52px}
+input:focus,select:focus{outline:3px solid var(--pri2);border-color:var(--pri)}
+.muted{color:var(--muted);font-size:15px}
+.err{background:#ffe9ea;border:2px solid #ffb3b6;color:#8a1c21;border-radius:16px;padding:14px;margin:12px 0;font-weight:600}
+.info{background:#eef6ff;border:2px solid #cfe3ff;color:#1d3f72;border-radius:16px;padding:12px 14px;margin:12px 0;font-size:15px}
+.warnbox{background:#fff6e0;border:2px solid #ffd98a;color:#6b4a00;border-radius:16px;padding:12px 14px;margin:12px 0;font-size:15px}
+.hidden{display:none!important}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:6;background:#fff;display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -2px 14px rgba(0,0,0,.08)}
+nav button{flex:1;background:none;border:0;font:inherit;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;min-height:58px;border-radius:14px}
+nav button span{font-size:26px}nav button.on{color:var(--pri);background:#f0eaff}
+.exam{display:flex;align-items:center;gap:14px;cursor:pointer}
+.exam .ic{font-size:34px;width:56px;height:56px;border-radius:16px;background:#f0eaff;display:grid;place-items:center;flex:none}
+.exam b{display:block;font-size:18px}.exam .stars{font-size:18px;letter-spacing:2px}
+.badge{display:inline-block;background:var(--bad);color:#fff;border-radius:999px;padding:2px 9px;font-size:13px;font-weight:800;margin-left:6px}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.thumb{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:3/4;background:#eee}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb button{position:absolute;top:4px;right:4px;width:36px;height:36px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:18px}
+.thumb .blur{position:absolute;left:0;right:0;bottom:0;background:rgba(255,176,32,.92);color:#422;font-size:12px;font-weight:800;padding:3px;text-align:center}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{border:2px solid #ddd3fb;background:#fff;color:var(--ink);border-radius:999px;padding:10px 16px;font:inherit;font-weight:700;min-height:48px}
+.chip.on{background:var(--pri);border-color:var(--pri);color:#fff}
+/* peli */
+.gtop{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-weight:800}
+.bar{height:14px;background:#e3dafd;border-radius:99px;overflow:hidden;flex:1}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),#7be495);border-radius:99px;transition:width .3s}
+.pill{background:#fff;border-radius:999px;padding:6px 12px;box-shadow:var(--shadow);white-space:nowrap}
+.streak{color:#ff6b00}
+.qtype{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--pri)}
+.qtext{font-size:22px;font-weight:800;line-height:1.3;margin:8px 0 4px}
+.opt{display:block;width:100%;text-align:left;min-height:60px;padding:14px 16px;margin:10px 0;border-radius:16px;border:3px solid #e3dafd;background:#fff;font:inherit;font-size:18px;font-weight:700;color:var(--ink);box-shadow:0 3px 0 #e3dafd}
+.opt.sel{border-color:var(--pri);background:#f0eaff}
+.opt.right{border-color:var(--ok);background:#e3f9ee}.opt.wrong{border-color:var(--bad);background:#ffe9ea}
+.opt[disabled]{opacity:1}
+.tf{display:grid;grid-template-columns:1fr 1fr;gap:12px}.tf .opt{text-align:center;font-size:22px;min-height:90px}
+.match{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.match .opt{font-size:15px;min-height:56px;padding:10px;margin:0}
+.p0{border-color:#ff8fab!important;background:#fff0f4!important}.p1{border-color:#4cc9f0!important;background:#e9f9ff!important}.p2{border-color:#ffd23f!important;background:#fffbe6!important}.p3{border-color:#80ed99!important;background:#effff2!important}.p4{border-color:#c77dff!important;background:#f7ecff!important}.p5{border-color:#ff9f1c!important;background:#fff4e6!important}
+.fb{border-radius:var(--r);padding:16px;margin-top:14px;animation:pop .25s}
+.fb.ok{background:#e3f9ee;border:3px solid var(--ok)}.fb.bad{background:#fff0f0;border:3px solid var(--bad)}
+.fb h4{margin:0 0 6px;font-size:22px}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}
+.pts{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);font-size:44px;font-weight:900;color:var(--ok);text-shadow:0 3px 0 #fff;pointer-events:none;animation:up 1s forwards;z-index:9}
+@keyframes up{to{transform:translate(-50%,-160%);opacity:0}}
+.timer{height:8px;background:#ffe0e0;border-radius:99px;overflow:hidden;margin:6px 0}.timer i{display:block;height:100%;background:var(--warn);transition:width 1s linear}
+.big{font-size:56px;text-align:center;margin:6px 0}
+.center{text-align:center}
+.lvl{height:12px;background:#e3dafd;border-radius:99px;overflow:hidden;margin:6px 0}.lvl i{display:block;height:100%;background:linear-gradient(90deg,var(--sun),#ff9f1c)}
+.summary p{white-space:pre-wrap}
+.terms dt{font-weight:800;margin-top:8px}.terms dd{margin:2px 0 0 0}
+.src{white-space:pre-wrap;font-size:15px;max-height:none}
+.spinner{width:70px;height:70px;border-radius:50%;border:8px solid #e3dafd;border-top-color:var(--pri);animation:spin 1s linear infinite;margin:24px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.confetti{position:fixed;top:-20px;width:10px;height:16px;z-index:20;animation:fall linear forwards;pointer-events:none}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+.plist .pl{display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px;border:3px solid transparent;cursor:pointer}
+.plist .pl.on{border-color:var(--pri);background:#f0eaff}.plist .pl .av{font-size:34px}
+ol.steps li{margin:6px 0}
+a{color:var(--pri);font-weight:700}
+</style>
+</head>
+<body>
+<header><h1>📚 Koekertaus</h1><button id="playerChip" aria-label="Vaihda pelaaja"><span class="av" id="pcAv">🙂</span><span><span id="pcName">–</span><small id="pcLvl"></small></span></button></header>
+<main>
+  <!-- KOTI -->
+  <section class="view" id="v-home">
+    <div id="keyWarn" class="warnbox hidden">🔑 Tekoälyavain puuttuu. Lisää Gemini-avain <a href="#" data-go="settings">Asetuksissa</a> (ohje <a href="#" data-go="help">täällä</a>).</div>
+    <div class="card" id="lvlCard"></div>
+    <button class="btn" data-go="create">📷 Uusi koe – kuvaa koealue</button>
+    <h3 id="myTitle">Omat kokeet</h3>
+    <div id="myExams"></div>
+    <h3 id="otherTitle" class="hidden">Muiden kokeet</h3>
+    <div id="otherExams"></div>
+  </section>
+
+  <!-- UUSI KOE -->
+  <section class="view" id="v-create">
+    <h2 id="cTitle">Uusi koe</h2>
+    <div id="cMeta">
+      <label for="cSubject">Oppiaine</label>
+      <input type="text" id="cSubject" list="subjects" placeholder="esim. Historia" autocomplete="off">
+      <datalist id="subjects"><option>Historia</option><option>Biologia</option><option>Maantieto</option><option>Ympäristöoppi</option><option>Fysiikka</option><option>Kemia</option><option>Terveystieto</option><option>Uskonto</option><option>Elämänkatsomustieto</option><option>Yhteiskuntaoppi</option><option>Äidinkieli</option><option>Englanti</option><option>Ruotsi</option><option>Matematiikka</option></datalist>
+      <label for="cName">Koealueen nimi</label>
+      <input type="text" id="cName" placeholder="esim. Ranskan vallankumous" autocomplete="off">
+    </div>
+    <label>Kirjan sivut</label>
+    <div class="row">
+      <label class="btn" style="margin:0" for="camIn">📷 Ota kuva</label>
+      <label class="btn sec" style="margin:0" for="galIn">🖼️ Galleriasta</label>
+    </div>
+    <input type="file" id="camIn" accept="image/*" capture="environment" class="hidden">
+    <input type="file" id="galIn" accept="image/*" multiple class="hidden">
+    <p class="muted">Kuvaa yksi aukeama tai sivu kerrallaan, hyvässä valossa ja suoraan ylhäältä. Enintään 12 kuvaa.</p>
+    <div class="thumbs" id="thumbs"></div>
+    <div id="blurWarn" class="warnbox hidden">📸 Osa kuvista näyttää epätarkalta. Teksti luetaan paremmin, jos otat ne uudelleen.</div>
+    <label>Vaikeustaso</label>
+    <div class="chips" id="cDiff"><button class="chip" data-v="helppo">😊 Helppo</button><button class="chip on" data-v="normaali">🙂 Normaali</button><button class="chip" data-v="haastava">🤓 Haastava</button></div>
+    <label>Kysymysten määrä</label>
+    <div class="chips" id="cCount"><button class="chip" data-v="15">15</button><button class="chip on" data-v="20">20</button><button class="chip" data-v="30">30</button></div>
+    <div class="info">🔒 Kuvat lähetetään Googlen Gemini-tekoälylle käsiteltäviksi. Kuvia ei tallenneta tähän sovellukseen, vain niistä luettu teksti ja tehtävät. Älä kuvaa sivuja, joilla on nimiä tai henkilökuvia.</div>
+    <div id="cErr" class="err hidden"></div>
+    <button class="btn ok" id="cGo" disabled>✨ Tee tehtävät</button>
+    <button class="btn sec" data-go="home">Peruuta</button>
+  </section>
+
+  <!-- LADATAAN -->
+  <section class="view" id="v-loading">
+    <div class="card center"><div class="spinner"></div><h2 id="loadMsg">Tekoäly lukee sivuja…</h2><p class="muted" id="loadSub">Tämä kestää yleensä 20–60 sekuntia.</p></div>
+  </section>
+
+  <!-- KOE -->
+  <section class="view" id="v-exam">
+    <div class="card"><div class="exam"><div class="ic" id="eIc">📘</div><div style="flex:1"><span class="muted" id="eSubj"></span><b id="eName"></b><span class="stars" id="eStars"></span></div></div>
+      <p class="muted" id="eStats"></p></div>
+    <button class="btn" id="ePlay">▶️ Pelaa (10 kysymystä)</button>
+    <button class="btn warn" id="eReview">🔁 Kertaa väärät</button>
+    <button class="btn sec" id="eAll">🎯 Kaikki kysymykset</button>
+    <div class="row"><label class="chip" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="eTimer" style="width:24px;height:24px"> ⏱️ Ajastin</label></div>
+    <button class="btn sec" id="eSummary">📝 Tiivistelmä</button>
+    <div class="card">
+      <h3 style="margin-top:0">➕ Lisää kysymyksiä</h3>
+      <div class="chips" id="mDiff"><button class="chip" data-v="helppo">Helppo</button><button class="chip on" data-v="normaali">Normaali</button><button class="chip" data-v="haastava">Haastava</button></div>
+      <div id="mErr" class="err hidden"></div>
+      <button class="btn small" id="eMore">✨ Tee 10 lisää</button>
+      <button class="btn small sec" id="eAddPages">📷 Lisää sivuja</button>
+    </div>
+    <button class="btn bad small" id="eDel">🗑️ Poista koe</button>
+  </section>
+
+  <!-- TIIVISTELMÄ -->
+  <section class="view" id="v-summary">
+    <h2 id="sTitle">Tiivistelmä</h2>
+    <div class="card summary"><p id="sText"></p></div>
+    <div class="card hidden" id="sTermsCard"><h3 style="margin-top:0">Tärkeät käsitteet</h3><dl class="terms" id="sTerms"></dl></div>
+    <details class="card"><summary><b>Kirjan teksti (luettu kuvista)</b></summary><p class="src" id="sSrc"></p></details>
+    <button class="btn" id="sBack">⬅️ Takaisin</button>
+  </section>
+
+  <!-- PELI -->
+  <section class="view" id="v-game">
+    <div class="gtop"><button class="pill" id="gQuit" style="border:0;font:inherit;font-weight:800">✖</button><div class="bar"><i id="gBar"></i></div><span class="pill" id="gScore">0</span><span class="pill streak" id="gStreak">🔥0</span></div>
+    <div class="timer hidden" id="gTimer"><i></i></div>
+    <div class="card"><div class="qtype" id="gType"></div><div class="qtext" id="gQ"></div><div class="muted" id="gHint"></div></div>
+    <div id="gArea"></div>
+    <div id="gFb"></div>
+  </section>
+
+  <!-- TULOS -->
+  <section class="view" id="v-result">
+    <div class="card center"><div class="big" id="rStars"></div><h2 id="rMsg"></h2><p id="rStats" style="font-size:19px;font-weight:700"></p><div id="rLvl"></div></div>
+    <div id="rMissed"></div>
+    <button class="btn warn" id="rReview">🔁 Kertaa väärät</button>
+    <button class="btn" id="rAgain">▶️ Uusi kierros</button>
+    <button class="btn sec" id="rHome">🏠 Kokeen sivulle</button>
+  </section>
+
+  <!-- PELAAJAT -->
+  <section class="view" id="v-players">
+    <h2>Kuka pelaa?</h2>
+    <div class="card plist" id="plist"></div>
+    <h3>Lisää / muokkaa pelaajaa</h3>
+    <div class="card">
+      <label for="pName">Nimi</label><input type="text" id="pName" maxlength="20">
+      <label for="pGrade">Luokka</label><select id="pGrade"><option value="1">1.</option><option value="2">2.</option><option value="3">3.</option><option value="4">4.</option><option value="5">5.</option><option value="6">6.</option><option value="7">7.</option><option value="8">8.</option><option value="9">9.</option></select>
+      <label>Hahmo</label><div class="chips" id="pAv"></div>
+      <button class="btn" id="pSave">💾 Tallenna</button>
+      <button class="btn sec small" id="pNew">➕ Uusi pelaaja</button>
+      <button class="btn bad small hidden" id="pDel">Poista pelaaja</button>
+    </div>
+  </section>
+
+  <!-- ASETUKSET -->
+  <section class="view" id="v-settings">
+    <h2>Asetukset</h2>
+    <div class="card">
+      <label for="sKey">Gemini API -avain</label>
+      <div class="row"><input type="password" id="sKey" placeholder="AIza…" autocomplete="off" spellcheck="false" style="flex:3"><button class="btn sec small" id="sShow" style="flex:1">👁️</button></div>
+      <p class="muted">Avain tallennetaan vain tämän laitteen selaimeen. Hae avain osoitteesta <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
+      <label for="sModel">Tekoälymalli</label>
+      <select id="sModel"></select>
+      <div id="sMsg" class="hidden"></div>
+      <div class="row"><button class="btn" id="sSave">💾 Tallenna</button><button class="btn sec" id="sTest">🧪 Testaa avain</button></div>
+    </div>
+    <div class="card">
+      <label><input type="checkbox" id="sSound" style="width:22px;height:22px;vertical-align:middle"> 🔊 Äänet</label>
+      <label><input type="checkbox" id="sTimerDef" style="width:22px;height:22px;vertical-align:middle"> ⏱️ Ajastin oletuksena päällä</label>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Tiedot</h3><p class="muted">Kokeet, tehtävät ja pisteet tallennetaan vain tähän laitteeseen. Tiliä tai palvelinta ei ole.</p>
+      <button class="btn bad small" id="sWipe">Poista kaikki tiedot</button></div>
+    <p class="muted center">Versio 20261114-0946</p>
+  </section>
+
+  <!-- OHJE -->
+  <section class="view" id="v-help">
+    <h2>Ohje</h2>
+    <div class="card"><h3 style="margin-top:0">1. Hae tekoälyavain (vanhempi tekee kerran)</h3>
+      <ol class="steps"><li>Avaa <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> ja kirjaudu Google-tilillä.</li><li>Paina <b>Create API key</b> (Luo API-avain) ja kopioi avain (alkaa yleensä AIza…).</li><li>Avaa tässä sovelluksessa <b>Asetukset</b>, liitä avain, paina <b>Tallenna</b> ja sitten <b>Testaa avain</b>.</li></ol>
+      <p class="muted">Ilmaisella avaimella on päiväkohtainen käyttöraja. Jos tulee ilmoitus kiintiön täyttymisestä, odota hetki tai jatka huomenna.</p></div>
+    <div class="card"><h3 style="margin-top:0">2. Tee koe</h3><ol class="steps"><li>Valitse ylhäältä pelaaja.</li><li>Paina <b>Uusi koe</b>, kirjoita oppiaine ja koealue.</li><li>Kuvaa kirjan sivut (selvä valo, koko sivu kuvassa, ei heijastuksia).</li><li>Paina <b>Tee tehtävät</b> ja odota hetki.</li></ol></div>
+    <div class="card"><h3 style="margin-top:0">3. Pelaa ja kertaa</h3><p>Oikeista vastauksista saa pisteitä, ja putki (🔥) tuo lisäpisteitä. Ajastimella saa nopeusbonuksen. Väärin menneet kysymykset tulevat <b>Kertaa väärät</b> -tilaan, ja niitä kysytään uudelleen, kunnes ne menevät useamman kerran peräkkäin oikein. Tähdet: ⭐ 50 %, ⭐⭐ 75 %, ⭐⭐⭐ 90 % oikein.</p></div>
+    <div class="card"><h3 style="margin-top:0">🔒 Yksityisyys</h3><p>Kuvat lähetetään Googlen Gemini-palveluun tekstin lukemista ja tehtävien tekemistä varten. Ilmaisversiossa Google voi käyttää lähetettyä sisältöä palveluidensa kehittämiseen. Älä siis kuvaa sivuja, joilla on nimiä, henkilökuvia tai muita henkilötietoja. Muuten kaikki pysyy tällä laitteella.</p><p class="muted">Tekoäly voi joskus erehtyä. Jos kysymys tuntuu väärältä, tarkista kirjasta.</p></div>
+    <div class="card"><h3 style="margin-top:0">Ilman verkkoa</h3><p>Sovellus ja jo tehdyt kokeet toimivat ilman verkkoa. Uusien tehtävien tekeminen vaatii verkkoyhteyden. Lisää sovellus aloitusnäytölle selaimen valikosta.</p></div>
+  </section>
+</main>
+<nav>
+  <button data-go="home" class="on"><span>🏠</span>Kokeet</button>
+  <button data-go="players"><span>👫</span>Pelaajat</button>
+  <button data-go="help"><span>❓</span>Ohje</button>
+  <button data-go="settings"><span>⚙️</span>Asetukset</button>
+</nav>
+<script>
+// Koekertaus – ydinlogiikka (puhdas JS, testattavissa Nodella)
+(function (root) {
+  'use strict';
+  var KK = {};
+  KK.DEFAULT_MODEL = 'gemini-3.8-flash';
+  KK.MODELS = [
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (suositus, paras laatu)' },
+    { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (nopea ja edullinen)' }
+  ];
+  KK.API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+
+  // ---------- apufunktiot ----------
+  KK.uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); };
+  KK.shuffle = function (a, rnd) { rnd = rnd || Math.random; a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+  function str(x) { return (x === null || x === undefined) ? '' : String(x).trim(); }
+  KK.normText = function (s) {
+    return str(s).toLowerCase().replace(/[.,;:!?"'´`()\[\]{}«»”“’\-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+  };
+  KK.levenshtein = function (a, b) {
+    if (a === b) return 0; var m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+    var prev = [], cur = [], i, j; for (j = 0; j <= n; j++) prev[j] = j;
+    for (i = 1; i <= m; i++) { cur = [i]; for (j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+    return prev[n];
+  };
+
+  // ---------- kysymysten validointi ----------
+  // Sisäinen muoto: {id, type:'mc'|'tf'|'fill'|'match', q, options, correct, answer, accept, pairs, explanation, difficulty}
+  KK.normalizeQuestion = function (r) {
+    if (!r || typeof r !== 'object') return null;
+    var t = str(r.tyyppi || r.type).toLowerCase();
+    var map = { monivalinta: 'mc', mc: 'mc', tosi_epatosi: 'tf', 'tosi/epätosi': 'tf', tf: 'tf', aukko: 'fill', fill: 'fill', yhdista: 'match', yhdistä: 'match', match: 'match' };
+    t = map[t]; if (!t) return null;
+    var q = { id: str(r.id) || KK.uid(), type: t, q: str(r.kysymys || r.q), explanation: str(r.selitys || r.explanation), difficulty: str(r.vaikeus || r.difficulty) || 'normaali' };
+    if (!q.q) return null;
+    if (t === 'mc') {
+      var opts = (r.vaihtoehdot || r.options || []).map(str).filter(Boolean);
+      var seen = {}; opts = opts.filter(function (o) { var k = o.toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });
+      var ci = -1, ok = str(r.oikea_vastaus || r.answer);
+      if (typeof r.oikea_indeksi === 'number') ci = r.oikea_indeksi;
+      if (ok) { var f = opts.map(function (o) { return o.toLowerCase(); }).indexOf(ok.toLowerCase()); if (f >= 0) ci = f; else if (ci < 0 && opts.length < 6) { opts.push(ok); ci = opts.length - 1; } }
+      if (opts.length < 2 || ci < 0 || ci >= opts.length) return null;
+      q.options = opts; q.correct = ci;
+    } else if (t === 'tf') {
+      var a = r.totta; if (a === undefined) a = r.answer;
+      if (typeof a === 'string') a = /^(tosi|totta|true|kyllä)$/i.test(a.trim()) ? true : /^(epätosi|tarua|false|ei)$/i.test(a.trim()) ? false : null;
+      if (typeof a !== 'boolean') return null; q.answer = a;
+    } else if (t === 'fill') {
+      var ans = str(r.oikea_vastaus || r.answer); if (!ans) return null;
+      if (q.q.indexOf('___') < 0) { if (q.q.indexOf('__') >= 0) q.q = q.q.replace(/_{2,}/, '___'); else q.q = q.q + ' ___'; }
+      q.answer = ans; q.accept = (r.hyvaksytyt || r.accept || []).map(str).filter(Boolean);
+    } else if (t === 'match') {
+      var pairs = (r.parit || r.pairs || []).map(function (p) { return { left: str(p.vasen || p.left), right: str(p.oikea || p.right) }; }).filter(function (p) { return p.left && p.right; });
+      if (pairs.length > 6) pairs = pairs.slice(0, 6);
+      if (pairs.length < 2) return null; q.pairs = pairs;
+    }
+    return q;
+  };
+  KK.normalizeQuestions = function (arr) {
+    var out = [], seen = {};
+    (arr || []).forEach(function (r) { var q = KK.normalizeQuestion(r); if (!q) return; var k = q.type + '|' + KK.normText(q.q); if (seen[k]) return; seen[k] = 1; out.push(q); });
+    return out;
+  };
+
+  // ---------- vastausten tarkistus ----------
+  KK.checkFill = function (q, given) {
+    var g = KK.normText(given); if (!g) return false;
+    var cands = [q.answer].concat(q.accept || []).map(KK.normText).filter(Boolean);
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i]; if (g === c) return true;
+      var tol = c.length >= 9 ? 2 : c.length >= 5 ? 1 : 0;
+      if (tol && KK.levenshtein(g, c) <= tol) return true;
+      // numerot: 1789 vs "vuonna 1789"
+      if (/^\d+$/.test(c) && g.split(' ').indexOf(c) >= 0) return true;
+    }
+    return false;
+  };
+  // answer: mc → valitun vaihtoehdon indeksi; tf → boolean; fill → teksti; match → {vasen: oikea} -olio tai taulukko pareja
+  KK.check = function (q, answer) {
+    if (q.type === 'mc') return answer === q.correct;
+    if (q.type === 'tf') return answer === q.answer;
+    if (q.type === 'fill') return KK.checkFill(q, answer);
+    if (q.type === 'match') {
+      if (!answer) return false;
+      return q.pairs.every(function (p) { return answer[p.left] === p.right; });
+    }
+    return false;
+  };
+  KK.correctText = function (q) {
+    if (q.type === 'mc') return q.options[q.correct];
+    if (q.type === 'tf') return q.answer ? 'Totta' : 'Tarua';
+    if (q.type === 'fill') return q.answer;
+    if (q.type === 'match') return q.pairs.map(function (p) { return p.left + ' – ' + p.right; }).join(', ');
+    return '';
+  };
+
+  // ---------- pisteet ----------
+  KK.DIFF_MULT = { helppo: 1, normaali: 1.2, haastava: 1.5 };
+  // opts: {correct, streak (putki ennen tätä vastausta), timeLeft, timeLimit, difficulty}
+  KK.scoreAnswer = function (o) {
+    if (!o.correct) return 0;
+    var base = 100, streakBonus = 20 * Math.min(o.streak || 0, 5);
+    var timeBonus = 0;
+    if (o.timeLimit > 0 && o.timeLeft > 0) timeBonus = Math.round(50 * Math.min(1, o.timeLeft / o.timeLimit));
+    var mult = KK.DIFF_MULT[o.difficulty] || 1;
+    return Math.round((base + streakBonus + timeBonus) * mult);
+  };
+  KK.starsFor = function (accuracy) { return accuracy >= 0.9 ? 3 : accuracy >= 0.75 ? 2 : accuracy >= 0.5 ? 1 : 0; };
+  // Tasot: taso n vaatii 250·n·(n−1)/2 XP:tä → 0, 250, 750, 1500, 2500 ...
+  KK.levelFor = function (xp) {
+    xp = Math.max(0, xp || 0); var n = 1; while (250 * n * (n + 1) / 2 <= xp) n++;
+    var cur = 250 * n * (n - 1) / 2, next = 250 * n * (n + 1) / 2;
+    return { level: n, xpInto: xp - cur, xpNeeded: next - cur, progress: (xp - cur) / (next - cur) };
+  };
+  KK.LEVEL_NAMES = ['Aloittelija', 'Opiskelija', 'Tietäjä', 'Mestari', 'Asiantuntija', 'Professori', 'Nero', 'Legenda'];
+  KK.levelName = function (lv) { return KK.LEVEL_NAMES[Math.min(lv - 1, KK.LEVEL_NAMES.length - 1)]; };
+
+  // ---------- kertaus (Leitner-laatikot) ----------
+  var MIN = 60e3, DAY = 864e5;
+  KK.SRS_INTERVALS = [0, 10 * MIN, DAY, 3 * DAY, 7 * DAY, 14 * DAY];
+  KK.srsUpdate = function (item, correct, now) {
+    item = item ? { box: item.box, due: item.due, right: item.right || 0, wrong: item.wrong || 0, last: item.last } : { box: 0, due: 0, right: 0, wrong: 0 };
+    if (correct) { item.right++; item.box = Math.min((item.box || 0) + 1, KK.SRS_INTERVALS.length - 1); }
+    else { item.wrong++; item.box = 1; }
+    item.due = now + (correct ? KK.SRS_INTERVALS[item.box] : 0);
+    item.last = now; item.lastCorrect = !!correct;
+    return item;
+  };
+  // Kertaa väärät: kysymykset, joihin on joskus vastattu väärin ja jotka eivät vielä ole "opittu" (laatikko < 4)
+  KK.reviewQueue = function (questions, srs, now) {
+    srs = srs || {};
+    var cand = questions.filter(function (q) { var s = srs[q.id]; return s && s.wrong > 0 && s.box < 4; });
+    var due = cand.filter(function (q) { return srs[q.id].due <= now; });
+    var list = due.length ? due : cand;
+    return list.slice().sort(function (a, b) { var A = srs[a.id], B = srs[b.id]; return (A.box - B.box) || (A.due - B.due); });
+  };
+  KK.reviewCount = function (questions, srs, now) { return KK.reviewQueue(questions, srs, now).length; };
+
+  // ---------- kierroksen rakentaminen ----------
+  // mode: 'normal' | 'all' | 'review'; prioritoi kysymykset, joita ei ole vielä nähty tai joissa on epäonnistuttu
+  KK.buildRound = function (questions, srs, opts) {
+    opts = opts || {}; var rnd = opts.rnd || Math.random, now = opts.now || Date.now(); srs = srs || {};
+    var pool;
+    if (opts.mode === 'review') pool = KK.reviewQueue(questions, srs, now).slice(0, opts.size || 10);
+    else if (opts.mode === 'all') pool = KK.shuffle(questions, rnd);
+    else {
+      var scored = KK.shuffle(questions, rnd).map(function (q) { var s = srs[q.id]; var p = !s ? 1 : (s.box < 2 ? 2 : s.box < 4 ? 3 : 4); return { q: q, p: p }; });
+      scored.sort(function (a, b) { return a.p - b.p; });
+      pool = scored.slice(0, opts.size || 10).map(function (x) { return x.q; });
+      pool = KK.shuffle(pool, rnd);
+    }
+    return pool.map(function (q) {
+      var c = JSON.parse(JSON.stringify(q));
+      if (c.type === 'mc') { var idx = KK.shuffle(c.options.map(function (_, i) { return i; }), rnd); c.options = idx.map(function (i) { return q.options[i]; }); c.correct = idx.indexOf(q.correct); }
+      if (c.type === 'match') c.rightOrder = KK.shuffle(c.pairs.map(function (p) { return p.right; }), rnd);
+      return c;
+    });
+  };
+
+  // Kierroksen tila
+  KK.newGame = function (round, opts) { opts = opts || {}; return { round: round, i: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, answers: [], timeLimit: opts.timeLimit || 0, difficulty: opts.difficulty || 'normaali' }; };
+  KK.answer = function (g, answer, timeLeft) {
+    var q = g.round[g.i]; var ok = KK.check(q, answer);
+    var pts = KK.scoreAnswer({ correct: ok, streak: g.streak, timeLeft: timeLeft, timeLimit: g.timeLimit, difficulty: q.difficulty || g.difficulty });
+    g.score += pts; if (ok) { g.streak++; g.correct++; g.bestStreak = Math.max(g.bestStreak, g.streak); } else g.streak = 0;
+    var rec = { id: q.id, correct: ok, points: pts, given: answer }; g.answers.push(rec); return rec;
+  };
+  KK.next = function (g) { g.i++; return g.i < g.round.length; };
+  KK.summary = function (g) { var n = g.round.length; var acc = n ? g.correct / n : 0; return { total: n, correct: g.correct, accuracy: acc, score: g.score, bestStreak: g.bestStreak, stars: KK.starsFor(acc), missed: g.answers.filter(function (a) { return !a.correct; }).map(function (a) { return a.id; }) }; };
+
+  KK.FEEDBACK_OK = ['Mahtavaa!', 'Oikein! 🎉', 'Huippua!', 'Juuri niin!', 'Loistavaa!', 'Täsmälleen!', 'Hienoa työtä!'];
+  KK.FEEDBACK_BAD = ['Melkein! Katso selitys.', 'Ei haittaa – tästä oppii!', 'Hups! Seuraava menee varmasti.', 'Hyvä yritys!'];
+  KK.endMessage = function (acc) { return acc >= 0.9 ? 'Olet valmis kokeeseen! 🏆' : acc >= 0.75 ? 'Tosi hyvä! Vielä vähän kertausta.' : acc >= 0.5 ? 'Hyvä alku! Kertaa väärät, niin muistat ne.' : 'Harjoitus tekee mestarin – kokeile uudestaan!'; };
+
+  // ---------- Gemini ----------
+  KK.GRADE_TEXT = function (grade) { return grade ? grade + '. luokan oppilas (peruskoulu)' : 'peruskoulun oppilas'; };
+  KK.responseSchema = function (withSource) {
+    var qItem = {
+      type: 'object',
+      properties: {
+        tyyppi: { type: 'string', enum: ['monivalinta', 'tosi_epatosi', 'aukko', 'yhdista'] },
+        kysymys: { type: 'string', description: 'Kysymys tai väite. Aukkotehtävässä lause, jossa puuttuva sana on merkitty ___' },
+        vaihtoehdot: { type: 'array', items: { type: 'string' }, description: 'Monivalinnassa 3–4 vaihtoehtoa, muuten tyhjä' },
+        oikea_vastaus: { type: 'string', description: 'Monivalinnassa oikean vaihtoehdon teksti täsmälleen, aukkotehtävässä puuttuva sana' },
+        totta: { type: 'boolean', description: 'Tosi/epätosi-väitteessä onko väite totta' },
+        hyvaksytyt: { type: 'array', items: { type: 'string' }, description: 'Aukkotehtävässä muut hyväksyttävät kirjoitusasut' },
+        parit: { type: 'array', items: { type: 'object', properties: { vasen: { type: 'string' }, oikea: { type: 'string' } }, required: ['vasen', 'oikea'] }, description: 'Yhdistä-tehtävässä 3–5 paria (käsite – selitys)' },
+        selitys: { type: 'string', description: 'Lyhyt 1–2 lauseen selitys, joka näytetään vastauksen jälkeen' },
+        vaikeus: { type: 'string', enum: ['helppo', 'normaali', 'haastava'] }
+      },
+      required: ['tyyppi', 'kysymys', 'selitys']
+    };
+    var props = { kysymykset: { type: 'array', items: qItem } };
+    var req = ['kysymykset'];
+    if (withSource) {
+      props.luettavuus = { type: 'object', properties: { ok: { type: 'boolean' }, ongelma: { type: 'string', description: 'Jos kuvat ovat epätarkkoja, liian tummia, rajattuja tai niissä ei ole oppikirjan tekstiä, kerro lyhyesti suomeksi' } }, required: ['ok'] };
+      props.lahdeteksti = { type: 'string', description: 'Kuvien teksti puhtaaksi kirjoitettuna (otsikot, kappaleet, kuvatekstit)' };
+      props.tiivistelma = { type: 'string', description: 'Selkeä tiivistelmä koealueesta oppilaalle, 5–12 ranskalaista viivaa tai lyhyttä kappaletta' };
+      props.avainkasitteet = { type: 'array', items: { type: 'object', properties: { kasite: { type: 'string' }, selitys: { type: 'string' } }, required: ['kasite', 'selitys'] } };
+      req = ['luettavuus', 'lahdeteksti', 'tiivistelma', 'kysymykset'];
+    }
+    return { type: 'object', properties: props, required: req };
+  };
+  KK.buildPrompt = function (o) {
+    var lines = [];
+    lines.push('Olet suomalainen opettaja, joka tekee kokeeseen valmistavia harjoitustehtäviä. Oppija: ' + KK.GRADE_TEXT(o.grade) + '.');
+    lines.push('Oppiaine: ' + (o.subject || '-') + '. Koealue: ' + (o.title || '-') + '.');
+    if (o.withSource) lines.push('Liitteenä on valokuvia oppikirjan sivuista. Lue kuvista kaikki teksti (myös kuvatekstit ja laatikot) ja kirjoita se kenttään lahdeteksti. Tee tiivistelmä ja avainkäsitteet.');
+    else lines.push('Alla on koealueen lähdeteksti, joka on luettu oppikirjan sivuilta.\n---\n' + o.sourceText + '\n---');
+    lines.push('Tee ' + o.count + ' uutta harjoitustehtävää. Vaikeustaso: ' + o.difficulty + '.');
+    lines.push('Säännöt: Käytä VAIN lähdemateriaalin tietoja, älä keksi asioita. Kirjoita hyvällä, ikätasolle sopivalla suomen kielellä. Sekoita tyyppejä: noin 45 % monivalinta (3–4 uskottavaa vaihtoehtoa, vain yksi oikea), 20 % tosi_epatosi, 20 % aukko (yksi selvä puuttuva sana tai luku, merkitse ___), 15 % yhdista (3–5 paria käsite–selitys tai henkilö–teko). Jokaiseen tehtävään lyhyt kannustava selitys, joka kertoo miksi vastaus on oikea. Kata koko koealue tasaisesti ja painota tärkeitä asioita.');
+    if (o.avoid && o.avoid.length) lines.push('Älä toista näitä jo olemassa olevia kysymyksiä:\n- ' + o.avoid.slice(0, 80).join('\n- '));
+    if (o.withSource) lines.push('Jos kuvat ovat lukukelvottomia tai niissä ei ole oppimateriaalia, aseta luettavuus.ok=false, kerro ongelma ja palauta tyhjä kysymyslista.');
+    return lines.join('\n\n');
+  };
+  // images: [{mime, data(base64)}]
+  KK.buildRequest = function (o) {
+    var withSource = !!(o.images && o.images.length);
+    var parts = [{ text: KK.buildPrompt({ grade: o.grade, subject: o.subject, title: o.title, count: o.count || 20, difficulty: o.difficulty || 'normaali', sourceText: o.sourceText, avoid: o.avoid, withSource: withSource }) }];
+    (o.images || []).forEach(function (im) { parts.push({ inline_data: { mime_type: im.mime || 'image/jpeg', data: im.data } }); });
+    var gc = { responseMimeType: 'application/json' };
+    if (o.schemaField === 'responseSchema') gc.responseSchema = KK.toOpenApiSchema(KK.responseSchema(withSource));
+    else gc.responseJsonSchema = KK.responseSchema(withSource);
+    if (KK.supportsThinkingLevel(o.model)) gc.thinkingConfig = { thinkingLevel: 'low' };
+    return { contents: [{ role: 'user', parts: parts }], generationConfig: gc };
+  };
+  KK.supportsThinkingLevel = function (model) { return /^gemini-([3-9]|\d\d)/.test(model || KK.DEFAULT_MODEL); };
+  // Varapolku: vanha responseSchema (OpenAPI-osajoukko, tyypit isoilla kirjaimilla)
+  KK.toOpenApiSchema = function (s) {
+    if (Array.isArray(s)) return s.map(KK.toOpenApiSchema);
+    if (!s || typeof s !== 'object') return s;
+    var o = {}; Object.keys(s).forEach(function (k) { if (k === 'type') o.type = String(s.type).toUpperCase(); else if (k === 'properties') { o.properties = {}; Object.keys(s.properties).forEach(function (p) { o.properties[p] = KK.toOpenApiSchema(s.properties[p]); }); } else if (k === 'items') o.items = KK.toOpenApiSchema(s.items); else o[k] = s[k]; });
+    return o;
+  };
+  KK.endpoint = function (model) { return KK.API_BASE + encodeURIComponent(model || KK.DEFAULT_MODEL) + ':generateContent'; };
+
+  function err(code, msg, detail) { var e = new Error(msg); e.code = code; e.detail = detail; return e; }
+  KK.err = err;
+  KK.mapHttpError = function (status, body) {
+    var m = '', reason = '';
+    try { var j = typeof body === 'string' ? JSON.parse(body) : body; m = (j && j.error && j.error.message) || ''; reason = JSON.stringify((j && j.error && j.error.details) || '') + ' ' + ((j && j.error && j.error.status) || ''); } catch (e) { m = String(body || '').slice(0, 200); }
+    var all = (m + ' ' + reason);
+    if (/API_KEY_INVALID|API key not valid|invalid api key/i.test(all)) return err('key', 'API-avain ei kelpaa. Tarkista avain Asetuksista (kopioi se uudelleen AI Studiosta).', m);
+    if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(all)) return err('quota', 'Tekoälyn käyttöraja on täynnä (kiintiö ylittyi). Odota hetki tai kokeile huomenna uudelleen. Asetuksista voi myös vaihtaa kevyempään malliin.', m);
+    if (status === 403 || /PERMISSION_DENIED/i.test(all)) return err('key', 'API-avaimella ei ole oikeutta Gemini-palveluun. Tee uusi avain osoitteessa aistudio.google.com/apikey.', m);
+    if (status === 404 || /not found|is not supported/i.test(all)) return err('model', 'Tekoälymallia ei löytynyt. Valitse Asetuksista toinen malli.', m);
+    if (status === 400 && /location|region|country/i.test(all)) return err('region', 'Gemini ei ole käytettävissä tällä alueella tai tilillä.', m);
+    if (status === 400 && /schema|Unknown name|Invalid JSON payload/i.test(all)) return err('schema', 'Tekoälypalvelu ei hyväksynyt pyyntöä.', m);
+    if (status === 400 && /image|inline_data|too large|size/i.test(all)) return err('image', 'Kuvien lähetys epäonnistui. Kokeile vähemmillä tai pienemmillä kuvilla.', m);
+    if (status >= 500) return err('server', 'Tekoälypalvelussa on häiriö. Yritä hetken päästä uudelleen.', m);
+    return err('http', 'Tekoälypalvelu palautti virheen (' + status + ').', m);
+  };
+  KK.parseResponse = function (json, withSource) {
+    if (json && json.promptFeedback && json.promptFeedback.blockReason) throw err('blocked', 'Tekoäly kieltäytyi käsittelemästä kuvia (' + json.promptFeedback.blockReason + '). Kokeile muita sivuja.');
+    var c = json && json.candidates && json.candidates[0];
+    if (!c) throw err('empty', 'Tekoäly ei palauttanut vastausta. Yritä uudelleen.');
+    if (c.finishReason === 'SAFETY' || c.finishReason === 'PROHIBITED_CONTENT') throw err('blocked', 'Tekoäly esti vastauksen. Kokeile muita sivuja.');
+    var text = ((c.content && c.content.parts) || []).filter(function (p) { return p.text && !p.thought; }).map(function (p) { return p.text; }).join('');
+    if (!text) throw err('empty', 'Tekoäly ei palauttanut tehtäviä. Yritä uudelleen.');
+    var data;
+    try { data = JSON.parse(text); } catch (e) {
+      var m = text.match(/\{[\s\S]*\}/); try { data = m && JSON.parse(m[0]); } catch (e2) { data = null; }
+      if (!data) throw err(c.finishReason === 'MAX_TOKENS' ? 'toolong' : 'parse', c.finishReason === 'MAX_TOKENS' ? 'Vastaus jäi kesken (liian pitkä). Kokeile vähemmillä sivuilla tai pienemmällä kysymysmäärällä.' : 'Tekoälyn vastausta ei voitu lukea. Yritä uudelleen.');
+    }
+    if (withSource && data.luettavuus && data.luettavuus.ok === false) throw err('blurry', 'Kuvista ei saatu selvää: ' + (data.luettavuus.ongelma || 'kuvat ovat epätarkkoja tai tummia') + '. Ota kuvat uudelleen hyvässä valossa ja suoraan ylhäältä.');
+    var qs = KK.normalizeQuestions(data.kysymykset);
+    if (!qs.length) throw err(withSource ? 'blurry' : 'empty', withSource ? 'Kuvista ei saatu tehtyä tehtäviä. Varmista, että kuvat ovat tarkkoja ja teksti näkyy kokonaan.' : 'Uusia tehtäviä ei syntynyt. Yritä uudelleen.');
+    return {
+      questions: qs,
+      sourceText: str(data.lahdeteksti), summary: str(data.tiivistelma),
+      terms: (data.avainkasitteet || []).map(function (t) { return { term: str(t.kasite), def: str(t.selitys) }; }).filter(function (t) { return t.term; })
+    };
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = KK; else root.KK = KK;
+})(this);
+
+</script>
+<script>
+(function(){
+'use strict';
+var $=function(s){return document.querySelector(s);}, $$=function(s){return Array.prototype.slice.call(document.querySelectorAll(s));};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+var AVATARS=['🦊','🦄','🐼','🐯','🐸','🐙','🦖','🐧','🚀','⚽','🎮','🌟'];
+var SETKEY='koekertaus.settings';
+var S=loadSettings();
+function loadSettings(){var d={apiKey:'',model:KK.DEFAULT_MODEL,sound:true,timer:false,player:null};try{var j=JSON.parse(localStorage.getItem(SETKEY)||'{}');for(var k in j)d[k]=j[k];}catch(e){}return d;}
+function saveSettings(){localStorage.setItem(SETKEY,JSON.stringify(S));}
+
+// ---------- IndexedDB ----------
+var dbp=null;
+function db(){if(dbp)return dbp;dbp=new Promise(function(res,rej){var r=indexedDB.open('koekertaus',1);r.onupgradeneeded=function(){var d=r.result;d.createObjectStore('players',{keyPath:'id'});d.createObjectStore('exams',{keyPath:'id'});d.createObjectStore('progress',{keyPath:'key'});};r.onsuccess=function(){res(r.result);};r.onerror=function(){rej(r.error);};});return dbp;}
+function tx(store,mode,fn){return db().then(function(d){return new Promise(function(res,rej){var t=d.transaction(store,mode);var s=t.objectStore(store);var out=fn(s);t.oncomplete=function(){res((out&&typeof IDBRequest!=='undefined'&&out instanceof IDBRequest)?out.result:out);};t.onerror=function(){rej(t.error);};});});}
+var DB={all:function(s){return tx(s,'readonly',function(st){return st.getAll();});},get:function(s,k){return tx(s,'readonly',function(st){return st.get(k);});},put:function(s,v){return tx(s,'readwrite',function(st){st.put(v);}).then(function(){return v;});},del:function(s,k){return tx(s,'readwrite',function(st){st.delete(k);});},clear:function(s){return tx(s,'readwrite',function(st){st.clear();});}};
+
+var players=[],exams=[],cur={player:null,exam:null,prog:null,game:null};
+function player(){return players.filter(function(p){return p.id===S.player;})[0]||players[0];}
+function progKey(pid,eid){return pid+'|'+eid;}
+function getProg(pid,eid){return DB.get('progress',progKey(pid,eid)).then(function(p){return p||{key:progKey(pid,eid),player:pid,exam:eid,srs:{},best:0,stars:0,plays:0};});}
+
+function init(){
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(function(){});
+  return DB.all('players').then(function(ps){
+    if(!ps.length){ps=[{id:'lauri',name:'Lauri',grade:7,avatar:'🦊',xp:0},{id:'aino',name:'Aino',grade:5,avatar:'🦄',xp:0}];return Promise.all(ps.map(function(p){return DB.put('players',p);})).then(function(){return ps;});}
+    return ps;
+  }).then(function(ps){players=ps;if(!player()||!S.player){S.player=null;saveSettings();}return DB.all('exams');}).then(function(es){exams=es;
+    if(!S.player){go('players');}else go('home');
+  });
+}
+
+// ---------- navigointi ----------
+var curView='home';
+function go(v,opt){
+  if(v==='home'&&!S.player){v='players';}
+  curView=v;$$('.view').forEach(function(x){x.classList.toggle('on',x.id==='v-'+v);});
+  $$('nav button').forEach(function(b){b.classList.toggle('on',b.dataset.go===v||(v!=='players'&&v!=='help'&&v!=='settings'&&b.dataset.go==='home'));});
+  document.querySelector('nav').classList.toggle('hidden',v==='game'||v==='loading');
+  window.scrollTo(0,0);renderChip();
+  if(v==='home')renderHome();if(v==='players')renderPlayers();if(v==='settings')renderSettings();if(v==='create')renderCreate(opt);
+  if(v!=='game')stopTimer();
+}
+document.addEventListener('click',function(e){var g=e.target.closest('[data-go]');if(g){e.preventDefault();go(g.dataset.go);}});
+$('#playerChip').onclick=function(){go('players');};
+
+function renderChip(){var p=player();if(!p||!S.player){$('#pcName').textContent='Valitse';$('#pcAv').textContent='🙂';$('#pcLvl').textContent='';return;}
+  var L=KK.levelFor(p.xp);$('#pcName').textContent=p.name;$('#pcAv').textContent=p.avatar;$('#pcLvl').textContent='Taso '+L.level;}
+
+// ---------- koti ----------
+var ICONS=[[/histor/i,'🏛️'],[/biolog|ympäristö|luonto/i,'🌿'],[/maantie|geogra/i,'🌍'],[/mate/i,'➗'],[/englan/i,'🇬🇧'],[/ruots/i,'🇸🇪'],[/saksa/i,'🇩🇪'],[/fysiik/i,'⚡'],[/kemia/i,'⚗️'],[/uskon|elämänkat|filoso/i,'📜'],[/äidinkiel|suomi|kirjallis/i,'📖'],[/terve/i,'❤️'],[/yhteiskun/i,'⚖️'],[/musiik/i,'🎵']];
+function iconFor(s){for(var i=0;i<ICONS.length;i++)if(ICONS[i][0].test(s||''))return ICONS[i][1];return '📘';}
+function starsTxt(n){return '⭐'.repeat(n)+'☆'.repeat(3-n);}
+function renderHome(){
+  var p=player();$('#keyWarn').classList.toggle('hidden',!!S.apiKey);
+  var L=KK.levelFor(p.xp);
+  $('#lvlCard').innerHTML='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:44px">'+esc(p.avatar)+'</span><div style="flex:1"><b style="font-size:20px">Hei '+esc(p.name)+'!</b><div class="muted">Taso '+L.level+' · '+esc(KK.levelName(L.level))+' · '+p.xp+' XP</div><div class="lvl"><i style="width:'+Math.round(L.progress*100)+'%"></i></div><div class="muted">Seuraavaan tasoon '+(L.xpNeeded-L.xpInto)+' XP</div></div></div>';
+  var mine=exams.filter(function(e){return e.owner===p.id;}).sort(function(a,b){return b.created-a.created;});
+  var other=exams.filter(function(e){return e.owner!==p.id;}).sort(function(a,b){return b.created-a.created;});
+  Promise.all(exams.map(function(e){return getProg(p.id,e.id);})).then(function(pr){
+    var byId={};pr.forEach(function(x){byId[x.exam]=x;});
+    function card(e){var g=byId[e.id];var rc=KK.reviewCount(e.questions,g.srs,Date.now());
+      return '<div class="card exam" data-exam="'+esc(e.id)+'"><div class="ic">'+iconFor(e.subject)+'</div><div style="flex:1"><span class="muted">'+esc(e.subject)+'</span><b>'+esc(e.title)+'</b><span class="stars">'+starsTxt(g.stars||0)+'</span> <span class="muted">'+e.questions.length+' kysymystä</span>'+(rc?'<span class="badge">🔁 '+rc+'</span>':'')+'</div><span style="font-size:26px">›</span></div>';}
+    $('#myExams').innerHTML=mine.length?mine.map(card).join(''):'<div class="card muted center">Ei vielä kokeita. Kuvaa ensimmäinen koealue! 📷</div>';
+    $('#otherTitle').classList.toggle('hidden',!other.length);
+    $('#otherExams').innerHTML=other.map(card).join('');
+    $$('[data-exam]').forEach(function(c){c.onclick=function(){openExam(c.dataset.exam);};});
+  });
+}
+
+// ---------- pelaajat ----------
+var editP=null;
+function renderPlayers(){
+  $('#plist').innerHTML=players.map(function(p){var L=KK.levelFor(p.xp);return '<div class="pl'+(p.id===S.player?' on':'')+'" data-pid="'+esc(p.id)+'"><span class="av">'+esc(p.avatar)+'</span><div style="flex:1"><b style="font-size:19px">'+esc(p.name)+'</b><div class="muted">'+p.grade+'. luokka · Taso '+L.level+' · '+p.xp+' XP</div></div><button class="btn small sec" data-edit="'+esc(p.id)+'">✏️</button></div>';}).join('');
+  $$('[data-pid]').forEach(function(el){el.onclick=function(e){if(e.target.closest('[data-edit]'))return;S.player=el.dataset.pid;saveSettings();go('home');};});
+  $$('[data-edit]').forEach(function(b){b.onclick=function(){editPlayer(players.filter(function(p){return p.id===b.dataset.edit;})[0]);};});
+  editPlayer(editP);
+}
+function editPlayer(p){editP=p||null;$('#pName').value=p?p.name:'';$('#pGrade').value=p?p.grade:5;var av=p?p.avatar:AVATARS[2];
+  $('#pAv').innerHTML=AVATARS.map(function(a){return '<button class="chip'+(a===av?' on':'')+'" data-av="'+a+'" style="font-size:24px">'+a+'</button>';}).join('');
+  $$('#pAv .chip').forEach(function(c){c.onclick=function(){$$('#pAv .chip').forEach(function(x){x.classList.remove('on');});c.classList.add('on');};});
+  $('#pDel').classList.toggle('hidden',!p);$('#pSave').textContent=p?'💾 Tallenna muutokset':'➕ Lisää pelaaja';}
+$('#pNew').onclick=function(){editPlayer(null);$('#pName').focus();};
+$('#pSave').onclick=function(){var n=$('#pName').value.trim();if(!n){$('#pName').focus();return;}var avb=$('#pAv .chip.on');
+  var p=editP||{id:KK.uid(),xp:0};p.name=n;p.grade=+$('#pGrade').value;p.avatar=avb?avb.dataset.av:'🙂';
+  DB.put('players',p).then(function(){if(!editP)players.push(p);editP=null;renderPlayers();renderChip();});};
+$('#pDel').onclick=function(){if(!editP||!confirm('Poistetaanko pelaaja '+editP.name+'? Hänen pisteensä poistuvat.'))return;var id=editP.id;
+  DB.del('players',id).then(function(){players=players.filter(function(p){return p.id!==id;});if(S.player===id){S.player=null;saveSettings();}editP=null;renderPlayers();renderChip();});};
+
+// ---------- asetukset ----------
+function renderSettings(){$('#sKey').value=S.apiKey||'';$('#sKey').type='password';
+  var opts=KK.MODELS.slice();if(!opts.some(function(m){return m.id===S.model;}))opts.push({id:S.model,name:S.model});
+  $('#sModel').innerHTML=opts.map(function(m){return '<option value="'+esc(m.id)+'"'+(m.id===S.model?' selected':'')+'>'+esc(m.name)+'</option>';}).join('');
+  $('#sSound').checked=!!S.sound;$('#sTimerDef').checked=!!S.timer;$('#sMsg').className='hidden';}
+function sMsg(cls,t){var m=$('#sMsg');m.className=cls;m.textContent=t;}
+$('#sShow').onclick=function(){var k=$('#sKey');k.type=k.type==='password'?'text':'password';};
+$('#sSave').onclick=function(){S.apiKey=$('#sKey').value.trim();S.model=$('#sModel').value;saveSettings();sMsg('info','✅ Tallennettu.');};
+$('#sSound').onchange=function(){S.sound=this.checked;saveSettings();};
+$('#sTimerDef').onchange=function(){S.timer=this.checked;saveSettings();};
+$('#sTest').onclick=function(){var k=$('#sKey').value.trim();if(!k){sMsg('err','Liitä ensin avain kenttään.');return;}
+  S.apiKey=k;S.model=$('#sModel').value;saveSettings();sMsg('info','Testataan…');
+  fetch(KK.API_BASE+encodeURIComponent(S.model),{headers:{'x-goog-api-key':k}}).then(function(r){return r.text().then(function(t){
+    if(r.ok)sMsg('info','✅ Avain toimii! Malli '+S.model+' on käytettävissä.');else sMsg('err',KK.mapHttpError(r.status,t).message);});})
+  .catch(function(){sMsg('err',navigator.onLine?'Yhteys Googleen ei onnistunut. Yritä uudelleen.':'Ei verkkoyhteyttä.');});};
+$('#sWipe').onclick=function(){if(!confirm('Poistetaanko kaikki kokeet, pelaajat ja pisteet tästä laitteesta? API-avain säilyy.'))return;
+  Promise.all([DB.clear('exams'),DB.clear('progress'),DB.clear('players')]).then(function(){S.player=null;saveSettings();location.reload();});};
+
+// ---------- kuvat ----------
+var photos=[];
+function loadImg(file){
+  if(window.createImageBitmap)return createImageBitmap(file,{imageOrientation:'from-image'}).catch(function(){return createImageBitmap(file);}).catch(function(){return imgEl(file);});
+  return imgEl(file);
+}
+function imgEl(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file);var i=new Image();i.onload=function(){res(i);};i.onerror=function(){rej(new Error('kuva'));};i.src=u;});}
+function processFile(file){
+  return loadImg(file).then(function(img){
+    var w=img.width,h=img.height,MAX=1600,s=Math.min(1,MAX/Math.max(w,h));
+    var c=document.createElement('canvas');c.width=Math.round(w*s);c.height=Math.round(h*s);var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);
+    var url=c.toDataURL('image/jpeg',0.82);
+    // terävyysarvio: Laplace-varianssi pienennetystä harmaasävykuvasta
+    var t=document.createElement('canvas'),ts=Math.min(1,500/Math.max(c.width,c.height));t.width=Math.round(c.width*ts);t.height=Math.round(c.height*ts);var tx2=t.getContext('2d');tx2.drawImage(c,0,0,t.width,t.height);
+    var d=tx2.getImageData(0,0,t.width,t.height).data,W=t.width,H=t.height,g=new Float32Array(W*H);for(var i=0;i<W*H;i++)g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];
+    var sum=0,sq=0,n=0,br=0;for(var yy=1;yy<H-1;yy++)for(var xx=1;xx<W-1;xx++){var k=yy*W+xx;var L=4*g[k]-g[k-1]-g[k+1]-g[k-W]-g[k+W];sum+=L;sq+=L*L;n++;br+=g[k];}
+    var v=n?sq/n-(sum/n)*(sum/n):0;br=n?br/n:128;
+    return {id:KK.uid(),url:url,data:url.split(',')[1],mime:'image/jpeg',sharp:v,dark:br<60,blurry:v<40||br<60};
+  });
+}
+function addFiles(files){var arr=Array.prototype.slice.call(files||[]);if(!arr.length)return;$('#cErr').classList.add('hidden');
+  arr=arr.slice(0,Math.max(0,12-photos.length));
+  Promise.all(arr.map(function(f){return processFile(f).catch(function(){return null;});})).then(function(rs){var bad=0;rs.forEach(function(r){if(r)photos.push(r);else bad++;});
+    if(bad)showErr('#cErr','Kuvaa ei voitu avata ('+bad+' kpl). Kokeile toista kuvaa.');renderThumbs();});}
+$('#camIn').onchange=function(){addFiles(this.files);this.value='';};
+$('#galIn').onchange=function(){addFiles(this.files);this.value='';};
+function renderThumbs(){$('#thumbs').innerHTML=photos.map(function(p,i){return '<div class="thumb"><img src="'+p.url+'" alt="sivu '+(i+1)+'"><button data-rm="'+i+'" aria-label="Poista">✕</button>'+(p.blurry?'<div class="blur">'+(p.dark?'Liian tumma?':'Epätarkka?')+'</div>':'')+'</div>';}).join('');
+  $$('[data-rm]').forEach(function(b){b.onclick=function(){photos.splice(+b.dataset.rm,1);renderThumbs();};});
+  $('#blurWarn').classList.toggle('hidden',!photos.some(function(p){return p.blurry;}));updateGo();}
+function chipGroup(sel){$$(sel+' .chip').forEach(function(c){c.onclick=function(){$$(sel+' .chip').forEach(function(x){x.classList.remove('on');});c.classList.add('on');};});}
+function chipVal(sel){var c=$(sel+' .chip.on');return c&&c.dataset.v;}
+chipGroup('#cDiff');chipGroup('#cCount');chipGroup('#mDiff');
+var addTo=null;
+function renderCreate(opt){if(opt&&opt.keep){updateGo();return;}addTo=opt&&opt.addTo||null;photos=[];renderThumbs();$('#cErr').classList.add('hidden');
+  $('#cMeta').classList.toggle('hidden',!!addTo);$('#cTitle').textContent=addTo?'Lisää sivuja: '+addTo.title:'Uusi koe';
+  if(!addTo){$('#cSubject').value='';$('#cName').value='';}updateGo();}
+function updateGo(){$('#cGo').disabled=!photos.length||(!addTo&&(!$('#cSubject').value.trim()||!$('#cName').value.trim()));}
+$('#cSubject').oninput=updateGo;$('#cName').oninput=updateGo;
+function showErr(sel,msg){var e=$(sel);e.textContent='⚠️ '+msg;e.classList.remove('hidden');setTimeout(function(){e.scrollIntoView({behavior:'smooth',block:'center'});},50);}
+
+// ---------- Gemini ----------
+function callGemini(o){
+  if(!S.apiKey)return Promise.reject(KK.err('nokey','Tekoälyavain puuttuu. Lisää Gemini API -avain Asetuksissa (ohje Ohje-välilehdellä).'));
+  if(navigator.onLine===false)return Promise.reject(KK.err('offline','Ei verkkoyhteyttä. Tehtävien tekeminen vaatii netin, mutta valmiita kokeita voi pelata.'));
+  o.model=S.model;
+  function attempt(field){o.schemaField=field;var body=KK.buildRequest(o);var ac=window.AbortController?new AbortController():null;var to=setTimeout(function(){if(ac)ac.abort();},180000);
+    return fetch(KK.endpoint(S.model),{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.apiKey},body:JSON.stringify(body),signal:ac&&ac.signal})
+    .catch(function(e){clearTimeout(to);throw KK.err('net',e&&e.name==='AbortError'?'Tekoäly ei vastannut ajoissa. Kokeile vähemmillä kuvilla.':'Yhteys tekoälyyn katkesi. Tarkista netti ja yritä uudelleen.');})
+    .then(function(r){clearTimeout(to);return r.text().then(function(t){if(!r.ok)throw KK.mapHttpError(r.status,t);var j;try{j=JSON.parse(t);}catch(e){throw KK.err('parse','Tekoälyn vastausta ei voitu lukea.');}return KK.parseResponse(j,!!(o.images&&o.images.length));});});}
+  return attempt('responseJsonSchema').catch(function(e){if(e.code==='schema')return attempt('responseSchema');throw e;});
+}
+var LOADMSG=['Tekoäly lukee sivuja… 📖','Etsitään tärkeimmät asiat… 🔍','Keksitään kysymyksiä… 💡','Sekoitetaan vastausvaihtoehtoja… 🎲','Melkein valmista… ✨'],loadT=null;
+function loading(on,first){clearInterval(loadT);if(!on)return;var i=0;$('#loadMsg').textContent=first?LOADMSG[0]:'Keksitään uusia kysymyksiä… 💡';go('loading');
+  loadT=setInterval(function(){i=Math.min(i+1,LOADMSG.length-1);if(first)$('#loadMsg').textContent=LOADMSG[i];},9000);}
+
+$('#cGo').onclick=function(){
+  var p=player(),diff=chipVal('#cDiff'),count=+chipVal('#cCount');
+  var subj=addTo?addTo.subject:$('#cSubject').value.trim(),title=addTo?addTo.title:$('#cName').value.trim();
+  var imgs=photos.map(function(x){return {mime:x.mime,data:x.data};});
+  loading(true,true);
+  callGemini({images:imgs,grade:p.grade,subject:subj,title:title,difficulty:diff,count:count,avoid:addTo?addTo.questions.map(function(q){return q.q;}):null})
+  .then(function(res){loading(false);
+    res.questions.forEach(function(q){q.difficulty=q.difficulty||diff;});
+    var e;
+    if(addTo){e=addTo;e.questions=e.questions.concat(res.questions);e.sourceText=(e.sourceText?e.sourceText+'\n\n':'')+res.sourceText;e.summary=(e.summary?e.summary+'\n\n':'')+res.summary;e.terms=(e.terms||[]).concat(res.terms);}
+    else e={id:KK.uid(),owner:p.id,subject:subj,title:title,created:Date.now(),difficulty:diff,questions:res.questions,sourceText:res.sourceText,summary:res.summary,terms:res.terms,pages:photos.length};
+    return DB.put('exams',e).then(function(){if(!addTo)exams.push(e);photos=[];toast('✨ '+res.questions.length+' tehtävää valmiina!');openExam(e.id);});
+  }).catch(function(err){loading(false);go('create',{keep:true});photosRestore();showErr('#cErr',err.message||String(err));if(err.detail)console.warn(err.detail);});
+  var saved=photos.slice();function photosRestore(){photos=saved;renderThumbs();}
+};
+
+// ---------- koe ----------
+function openExam(id){var e=exams.filter(function(x){return x.id===id;})[0];if(!e)return go('home');cur.exam=e;var p=player();
+  getProg(p.id,e.id).then(function(g){cur.prog=g;go('exam');renderExam();});}
+function renderExam(){var e=cur.exam,g=cur.prog,now=Date.now();
+  $('#eIc').textContent=iconFor(e.subject);$('#eSubj').textContent=e.subject;$('#eName').textContent=e.title;$('#eStars').textContent=starsTxt(g.stars||0);
+  var seen=e.questions.filter(function(q){return g.srs[q.id];}).length,learned=e.questions.filter(function(q){var s=g.srs[q.id];return s&&s.box>=3;}).length;
+  $('#eStats').textContent=e.questions.length+' kysymystä · nähty '+seen+' · hallussa '+learned+(g.best?' · ennätys '+g.best+' p':'')+(g.plays?' · pelattu '+g.plays+' kertaa':'');
+  var rc=KK.reviewCount(e.questions,g.srs,now);$('#eReview').textContent='🔁 Kertaa väärät ('+rc+')';$('#eReview').disabled=!rc;
+  $('#ePlay').textContent='▶️ Pelaa ('+Math.min(10,e.questions.length)+' kysymystä)';$('#eAll').textContent='🎯 Kaikki kysymykset ('+e.questions.length+')';
+  $('#eTimer').checked=!!S.timer;$('#mErr').classList.add('hidden');}
+$('#ePlay').onclick=function(){startGame('normal');};$('#eAll').onclick=function(){startGame('all');};$('#eReview').onclick=function(){startGame('review');};
+$('#eSummary').onclick=function(){var e=cur.exam;$('#sTitle').textContent='📝 '+e.title;$('#sText').textContent=e.summary||'Tiivistelmää ei ole.';
+  $('#sTermsCard').classList.toggle('hidden',!(e.terms&&e.terms.length));$('#sTerms').innerHTML=(e.terms||[]).map(function(t){return '<dt>'+esc(t.term)+'</dt><dd>'+esc(t.def)+'</dd>';}).join('');
+  $('#sSrc').textContent=e.sourceText||'–';go('summary');};
+$('#sBack').onclick=function(){go('exam');renderExam();};
+$('#eAddPages').onclick=function(){go('create',{addTo:cur.exam});};
+$('#eDel').onclick=function(){var e=cur.exam;if(!confirm('Poistetaanko koe "'+e.title+'"? Kaikkien pelaajien pisteet tästä kokeesta poistuvat.'))return;
+  DB.del('exams',e.id).then(function(){return Promise.all(players.map(function(p){return DB.del('progress',progKey(p.id,e.id));}));}).then(function(){exams=exams.filter(function(x){return x.id!==e.id;});go('home');});};
+$('#eMore').onclick=function(){var e=cur.exam,p=player(),diff=chipVal('#mDiff');
+  if(!e.sourceText){showErr('#mErr','Kokeen tekstiä ei ole tallessa. Lisää sivuja kuvaamalla.');return;}
+  loading(true,false);
+  callGemini({sourceText:e.sourceText,grade:p.grade,subject:e.subject,title:e.title,difficulty:diff,count:10,avoid:e.questions.map(function(q){return q.q;})})
+  .then(function(res){loading(false);var have={};e.questions.forEach(function(q){have[q.type+'|'+KK.normText(q.q)]=1;});
+    var add=res.questions.filter(function(q){return !have[q.type+'|'+KK.normText(q.q)];});add.forEach(function(q){q.difficulty=q.difficulty||diff;});
+    e.questions=e.questions.concat(add);return DB.put('exams',e).then(function(){toast('➕ '+add.length+' uutta kysymystä');go('exam');renderExam();});})
+  .catch(function(err){loading(false);go('exam');renderExam();showErr('#mErr',err.message||String(err));});};
+
+// ---------- peli ----------
+var TLABEL={mc:'Monivalinta',tf:'Totta vai tarua?',fill:'Täydennä',match:'Yhdistä parit'};
+var timerT=null,tLeft=0;
+function stopTimer(){clearInterval(timerT);timerT=null;}
+function startGame(mode){var e=cur.exam,g=cur.prog;var round=KK.buildRound(e.questions,g.srs,{mode:mode,size:10});if(!round.length)return;
+  var tl=$('#eTimer').checked?1:0;cur.game=KK.newGame(round,{timeLimit:tl,difficulty:e.difficulty});cur.game.mode=mode;cur.game.timed=!!tl;go('game');showQ();}
+function limitFor(q){return q.type==='match'?60:q.type==='fill'?40:q.type==='tf'?20:30;}
+function showQ(){var G=cur.game,q=G.round[G.i];$('#gFb').innerHTML='';
+  $('#gBar').style.width=(G.i/G.round.length*100)+'%';$('#gScore').textContent='⭐ '+G.score;$('#gStreak').textContent='🔥'+G.streak;
+  $('#gType').textContent=TLABEL[q.type]+' · '+(G.i+1)+'/'+G.round.length;$('#gQ').textContent=q.q;$('#gHint').textContent='';
+  var A=$('#gArea');
+  if(q.type==='mc'){A.innerHTML=q.options.map(function(o,i){return '<button class="opt" data-i="'+i+'">'+'ABCDEF'[i]+') '+esc(o)+'</button>';}).join('');
+    $$('#gArea .opt').forEach(function(b){b.onclick=function(){submit(+b.dataset.i);};});}
+  else if(q.type==='tf'){A.innerHTML='<div class="tf"><button class="opt" data-v="1">👍 Totta</button><button class="opt" data-v="0">👎 Tarua</button></div>';
+    $$('#gArea .opt').forEach(function(b){b.onclick=function(){submit(b.dataset.v==='1');};});}
+  else if(q.type==='fill'){A.innerHTML='<input type="text" id="fillIn" placeholder="Kirjoita vastaus" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn ok" id="fillGo">Tarkista ✔</button>';
+    var inp=$('#fillIn');inp.onkeydown=function(e){if(e.key==='Enter')$('#fillGo').click();};$('#fillGo').onclick=function(){if(!inp.value.trim()){inp.focus();return;}submit(inp.value);};setTimeout(function(){inp.focus();},50);
+    $('#gHint').textContent='Vihje: '+q.answer.length+' merkkiä, alkaa '+q.answer.charAt(0).toUpperCase();}
+  else if(q.type==='match'){var sel=null,pairs={},colors={};
+    $('#gHint').textContent='Napauta vasemmalta ja sitten oikealta sille pari.';
+    A.innerHTML='<div class="match"><div>'+q.pairs.map(function(p,i){return '<button class="opt" style="margin-bottom:8px" data-l="'+i+'">'+esc(p.left)+'</button>';}).join('')+'</div><div>'+q.rightOrder.map(function(r,i){return '<button class="opt" style="margin-bottom:8px" data-r="'+i+'">'+esc(r)+'</button>';}).join('')+'</div></div><button class="btn ok" id="mGo" disabled>Tarkista ✔</button>';
+    function paint(){$$('#gArea [data-l]').forEach(function(b){var l=q.pairs[+b.dataset.l].left;b.className='opt'+(sel===+b.dataset.l?' sel':'')+(pairs[l]!==undefined?' p'+colors[l]:'');});
+      $$('#gArea [data-r]').forEach(function(b){var r=q.rightOrder[+b.dataset.r],cls='opt';for(var l in pairs)if(pairs[l]===r)cls+=' p'+colors[l];b.className=cls;});
+      $('#mGo').disabled=Object.keys(pairs).length!==q.pairs.length;}
+    $$('#gArea [data-l]').forEach(function(b){b.onclick=function(){var i=+b.dataset.l,l=q.pairs[i].left;if(pairs[l]!==undefined){delete pairs[l];}sel=i;paint();};});
+    $$('#gArea [data-r]').forEach(function(b){b.onclick=function(){var r=q.rightOrder[+b.dataset.r];for(var l in pairs)if(pairs[l]===r)delete pairs[l];if(sel===null)return paint();var L=q.pairs[sel].left;pairs[L]=r;
+      var used={};for(var k in colors)if(pairs[k]!==undefined)used[colors[k]]=1;var c=0;while(used[c])c++;colors[L]=c;
+      var next=q.pairs.findIndex(function(p){return pairs[p.left]===undefined;});sel=next>=0?next:null;paint();};});
+    sel=0;paint();$('#mGo').onclick=function(){submit(pairs);};}
+  stopTimer();var T=$('#gTimer');T.classList.toggle('hidden',!G.timed);
+  if(G.timed){var lim=limitFor(q);G.timeLimit=lim;tLeft=lim;var bar=T.querySelector('i');bar.style.transition='none';bar.style.width='100%';
+    setTimeout(function(){bar.style.transition='width 1s linear';},30);
+    timerT=setInterval(function(){tLeft--;bar.style.width=Math.max(0,tLeft/lim*100)+'%';if(tLeft<=0){stopTimer();submit(null,true);}},1000);}
+}
+function submit(ans,timeout){var G=cur.game,q=G.round[G.i];if(G.locked)return;G.locked=true;stopTimer();
+  var rec=KK.answer(G,ans,G.timed?tLeft:0);var g=cur.prog;g.srs[q.id]=KK.srsUpdate(g.srs[q.id],rec.correct,Date.now());
+  // merkinnät
+  if(q.type==='mc')$$('#gArea .opt').forEach(function(b){var i=+b.dataset.i;b.disabled=true;if(i===q.correct)b.classList.add('right');else if(i===ans)b.classList.add('wrong');});
+  if(q.type==='tf')$$('#gArea .opt').forEach(function(b){var v=b.dataset.v==='1';b.disabled=true;if(v===q.answer)b.classList.add('right');else if(v===ans)b.classList.add('wrong');});
+  if(q.type==='fill'){var i=$('#fillIn');i.disabled=true;i.style.borderColor=rec.correct?'var(--ok)':'var(--bad)';$('#fillGo').classList.add('hidden');}
+  if(q.type==='match'){$$('#gArea .opt').forEach(function(b){b.disabled=true;});$('#mGo').classList.add('hidden');}
+  var msgs=rec.correct?KK.FEEDBACK_OK:KK.FEEDBACK_BAD,msg=msgs[Math.floor(Math.random()*msgs.length)];
+  if(timeout)msg='⏰ Aika loppui!';
+  if(rec.correct&&G.streak>=3)msg+=' 🔥 '+G.streak+' putkeen!';
+  $('#gFb').innerHTML='<div class="fb '+(rec.correct?'ok':'bad')+'"><h4>'+esc(msg)+'</h4>'+(rec.correct?'':'<p><b>Oikea vastaus:</b> '+esc(KK.correctText(q))+'</p>')+(q.explanation?'<p>💡 '+esc(q.explanation)+'</p>':'')+'<button class="btn" id="gNext">'+(G.i+1<G.round.length?'Seuraava ➜':'Katso tulos 🏁')+'</button></div>';
+  $('#gScore').textContent='⭐ '+G.score;$('#gStreak').textContent='🔥'+G.streak;
+  if(rec.correct){floatPts('+'+rec.points);beep(true);}else{beep(false);if(navigator.vibrate)navigator.vibrate(120);}
+  DB.put('progress',g);
+  $('#gNext').onclick=function(){G.locked=false;if(KK.next(G))showQ();else finish();};
+  setTimeout(function(){var n=$('#gNext');if(n)n.scrollIntoView({behavior:'smooth',block:'center'});},120);
+}
+$('#gQuit').onclick=function(){if(confirm('Lopetetaanko kierros? Jo vastatut kysymykset on tallennettu kertaukseen.')){stopTimer();openExam(cur.exam.id);}};
+function finish(){var G=cur.game,g=cur.prog,e=cur.exam,p=player();var s=KK.summary(G);
+  var before=KK.levelFor(p.xp).level;p.xp+=s.score;var L=KK.levelFor(p.xp);g.plays=(g.plays||0)+1;
+  if(G.mode!=='review'&&s.total>=5){g.stars=Math.max(g.stars||0,s.stars);}
+  g.best=Math.max(g.best||0,s.score);
+  Promise.all([DB.put('progress',g),DB.put('players',p)]);
+  $('#gBar').style.width='100%';
+  $('#rStars').textContent=G.mode==='review'?'🔁':starsTxt(s.stars);$('#rMsg').textContent=KK.endMessage(s.accuracy);
+  $('#rStats').innerHTML=s.correct+' / '+s.total+' oikein · ⭐ '+s.score+' pistettä<br>Pisin putki 🔥 '+s.bestStreak;
+  $('#rLvl').innerHTML=(L.level>before?'<h3>🎉 Uusi taso: '+L.level+' – '+esc(KK.levelName(L.level))+'!</h3>':'')+'<div class="muted">Taso '+L.level+' · '+p.xp+' XP</div><div class="lvl"><i style="width:'+Math.round(L.progress*100)+'%"></i></div>';
+  var miss=G.round.filter(function(q){return s.missed.indexOf(q.id)>=0;});
+  $('#rMissed').innerHTML=miss.length?'<div class="card"><h3 style="margin-top:0">Näitä kannattaa kerrata</h3>'+miss.map(function(q){return '<p><b>'+esc(q.q)+'</b><br>✅ '+esc(KK.correctText(q))+'</p>';}).join('')+'</div>':'';
+  var rc=KK.reviewCount(e.questions,g.srs,Date.now());$('#rReview').classList.toggle('hidden',!rc);$('#rReview').textContent='🔁 Kertaa väärät ('+rc+')';
+  go('result');if(s.accuracy>=0.75||L.level>before)confetti();beep(true,true);}
+$('#rReview').onclick=function(){startGame('review');};$('#rAgain').onclick=function(){startGame(cur.game.mode==='review'?'normal':cur.game.mode);};$('#rHome').onclick=function(){openExam(cur.exam.id);};
+
+// ---------- efektit ----------
+function floatPts(t){var d=document.createElement('div');d.className='pts';d.textContent=t;document.body.appendChild(d);setTimeout(function(){d.remove();},1000);}
+function toast(t){var d=document.createElement('div');d.className='pts';d.style.fontSize='24px';d.style.color='var(--pri)';d.textContent=t;document.body.appendChild(d);setTimeout(function(){d.remove();},1200);}
+function confetti(){var cs=['#ff8fab','#4cc9f0','#ffd23f','#80ed99','#c77dff','#ff9f1c'];for(var i=0;i<60;i++){var d=document.createElement('div');d.className='confetti';d.style.left=Math.random()*100+'vw';d.style.background=cs[i%cs.length];d.style.animationDuration=(1.5+Math.random()*1.5)+'s';d.style.animationDelay=Math.random()*.5+'s';document.body.appendChild(d);(function(x){setTimeout(function(){x.remove();},3500);})(d);}}
+var actx=null;function beep(ok,fan){if(!S.sound)return;try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();var notes=fan?[523,659,784,1047]:ok?[660,880]:[300,220];
+  notes.forEach(function(f,i){var o=actx.createOscillator(),g=actx.createGain();o.frequency.value=f;o.type=ok?'triangle':'sawtooth';g.gain.setValueAtTime(.0001,actx.currentTime+i*.1);g.gain.exponentialRampToValueAtTime(.15,actx.currentTime+i*.1+.02);g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+i*.1+.18);o.connect(g);g.connect(actx.destination);o.start(actx.currentTime+i*.1);o.stop(actx.currentTime+i*.1+.2);});}catch(e){}}
+
+if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js').catch(function(){});
+window.__kk={go:go,state:cur,S:S};
+init().catch(function(e){document.body.insertAdjacentHTML('afterbegin','<div class="err">Tallennustilaa ei voitu avata ('+esc(e&&e.message)+'). Yksityinen selaustila voi estää sen.</div>');});
+})();
+</script>
+</body>
+</html>
