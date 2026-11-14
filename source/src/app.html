@@ -406,18 +406,18 @@ function dbgAll(){try{return JSON.parse(localStorage.getItem(DBGKEY)||'[]');}cat
 function dbgLog(rec){var a=dbgAll();a.push(rec);while(a.length>25)a.shift();try{localStorage.setItem(DBGKEY,JSON.stringify(a));}catch(e){}}
 function nowTxt(){var d=new Date();function p(n){return (n<10?'0':'')+n;}return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
 // Yksi Gemini-kutsu. o.stage='read' (kuvat) tai 'questions' (teksti → o.count kysymystä)
-function callGemini(o){
+function callGeminiOnce(o,model){
   if(!S.apiKey)return Promise.reject(KK.err('nokey','Tekoälyavain puuttuu. Lisää Gemini API -avain Asetuksissa (ohje Ohje-välilehdellä).'));
   if(navigator.onLine===false)return Promise.reject(KK.err('offline','Ei verkkoyhteyttä. Tehtävien tekeminen vaatii netin, mutta valmiita kokeita voi pelata.'));
-  o.model=S.model;
+  o=Object.assign({},o,{model:model});
   function attempt(field,noThinking){var q=Object.assign({},o,{schemaField:field});if(noThinking)q.noThinking=true;var body=KK.buildRequest(q);
     var ac=window.AbortController?new AbortController():null,t0=Date.now(),timedOut=false;var to=setTimeout(function(){timedOut=true;if(ac)ac.abort();},150000);
-    var rec={t:nowTxt(),stage:o.stage,model:S.model,count:o.count||null,schema:field,thinking:body.generationConfig.thinkingConfig?body.generationConfig.thinkingConfig.thinkingLevel:'-',maxOutputTokens:body.generationConfig.maxOutputTokens,images:(o.images||[]).length,requestKB:Math.round(JSON.stringify(body).length/1024)};
+    var rec={t:nowTxt(),stage:o.stage,model:model,count:o.count||null,schema:field,thinking:body.generationConfig.thinkingConfig?body.generationConfig.thinkingConfig.thinkingLevel:'-',maxOutputTokens:body.generationConfig.maxOutputTokens,images:(o.images||[]).length,requestKB:Math.round(JSON.stringify(body).length/1024)};
     function done(extra,e){rec.ms=Date.now()-t0;for(var k in extra)rec[k]=extra[k];if(e){rec.error={code:e.code,message:e.message,detail:e.detail?String(e.detail).slice(0,600):undefined};}dbgLog(rec);}
-    return fetch(KK.endpoint(S.model),{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.apiKey},body:JSON.stringify(body),signal:ac&&ac.signal})
+    return fetch(KK.endpoint(model),{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.apiKey},body:JSON.stringify(body),signal:ac&&ac.signal})
     .catch(function(e){clearTimeout(to);var er=timedOut?KK.err('timeout','Tekoäly ei vastannut 2,5 minuutissa. Yritä uudelleen – verkko tai palvelu voi olla hidas.'):KK.err('net','Yhteys tekoälyyn katkesi. Tarkista netti ja yritä uudelleen.');done({http:0},er);throw er;})
     .then(function(r){clearTimeout(to);return r.text().then(function(t){
-      if(!r.ok){var er=KK.mapHttpError(r.status,t);done({http:r.status},er);throw er;}
+      if(!r.ok){var er=KK.mapHttpError(r.status,t,r.headers.get('retry-after'));done({http:r.status},er);throw er;}
       var j;try{j=JSON.parse(t);}catch(e){var pe=KK.err('parse','Tekoälyn vastausta ei voitu lukea.');done({http:r.status,rawTail:t.slice(-300)},pe);throw pe;}
       var c=j.candidates&&j.candidates[0];var base={http:r.status,finishReason:c&&c.finishReason,usage:j.usageMetadata,modelVersion:j.modelVersion};
       try{var info=KK.parseResponse(j,o.stage);done(Object.assign(base,{truncated:info.truncated,salvaged:info.salvaged,textLength:info.textLength,questions:info.questions?info.questions.length:undefined,textTail:info.truncated||info.salvaged?info.textTail:undefined}));return info;}
@@ -425,6 +425,15 @@ function callGemini(o){
     });});}
   return attempt('responseJsonSchema').catch(function(e){if(e.code==='schema')return attempt('responseSchema',/thinking/i.test(e.detail||''));throw e;});
 }
+var overloadedUntil={};
+// Ruuhkassa: uusinnat 2 s / 5 s / 10 s (+satunnaisuus, Retry-After), sitten varamalli. Ruuhkainen malli ohitetaan 5 min ajan.
+function callGemini(o){
+  var start=S.model;if(overloadedUntil[start]>Date.now())start=KK.fallbackModel(start);
+  return KK.withBackoff(function(model,meta){return callGeminiOnce(o,model);},{model:start,onStatus:function(msg,meta){statusMsg(msg);
+      dbgLog({t:nowTxt(),event:meta.switchFrom?'fallback':'retry-wait',stage:o.stage,model:meta.model,from:meta.switchFrom,waitMs:meta.waitMs,attempt:meta.attempt});}})
+  .then(function(info){if(info.usedModel!==S.model){overloadedUntil[S.model]=Date.now()+300000;}if(info.usedFallback)statusMsg('Varamalli '+info.usedModel+' vastasi ✅');return info;});
+}
+function statusMsg(t){if(curView==='loading')$('#loadSub').textContent=t;}
 // Ohimenevät virheet: yksi uusintayritys
 function withRetry(fn){return fn().catch(function(e){if(KK.isRetryable(e))return fn();throw e;});}
 var loadT=null;
@@ -435,7 +444,7 @@ function step(title,sub){$('#loadMsg').textContent=title;if(sub!==undefined)$('#
 function makeQuestions(e,total,diff,label){var p=player();var plan=KK.batchPlan(total);var made=0;
   return KK.runBatches(function(o){return callGemini(o);},
     {stage:'questions',sourceText:e.newText||e.sourceText,grade:p.grade,subject:e.subject,title:e.title,difficulty:diff,avoid:e.questions.map(function(q){return q.q;}),
-     onProgress:function(i,n){step((label||'')+'Tehdään kysymyksiä '+(made+1)+'–'+(made+plan[i])+' / '+total+' 💡',n>1?'Erä '+(i+1)+'/'+n+'. Valmiit tallentuvat heti.':'');}},
+     onProgress:function(i,n){step((label||'')+'Tehdään kysymyksiä '+(made+1)+'–'+(made+plan[i])+' / '+total+' 💡',(n>1?'Erä '+(i+1)+'/'+n+'. Valmiit tallentuvat heti.':'')+(overloadedUntil[S.model]>Date.now()?' Käytetään varamallia ('+KK.fallbackModel(S.model)+'), koska '+S.model+' on ruuhkassa.':''));}},
     plan,function(add){add.forEach(function(q){q.difficulty=q.difficulty||diff;});made+=add.length;e.questions=e.questions.concat(add);return DB.put('exams',e);});
 }
 function genReport(r,total){var n=r.questions.length;

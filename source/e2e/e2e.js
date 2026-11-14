@@ -48,7 +48,9 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   const visible = s => pg.$eval(s, e => !e.classList.contains('hidden') && e.offsetParent !== null).catch(() => false);
   const view = () => pg.$eval('.view.on', e => e.id);
 
+  await pg.evaluateOnNewDocument(() => { window.__fastBackoff = true; });
   await pg.goto('http://localhost:8766/'); await sleep(600);
+  await pg.evaluate(() => { KK.BACKOFF_MS = [60, 120, 180]; });
   ok(await view() === 'v-players', 'ensimmäisellä kerralla valitaan pelaaja');
   ok((await txt('#plist')).includes('Lauri') && (await txt('#plist')).includes('Aino'), 'Lauri ja Aino valmiina');
   await shot('players');
@@ -82,9 +84,9 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   await pg.type('#cSubject', 'Historia'); await pg.type('#cName', 'Ranskan vallankumous');
   await (await pg.$('#camIn')).uploadFile(path.join(__dirname, 'page1.jpg'));
   await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
-  mock.push({ status: 429, body: JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota', status: 'RESOURCE_EXHAUSTED' } }) });
+  for (let i = 0; i < 8; i++) mock.push({ status: 429, body: JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota', status: 'RESOURCE_EXHAUSTED' } }) });
   await pg.click('#cGo'); await pg.waitForFunction(() => !document.querySelector('#cErr').classList.contains('hidden'), { timeout: 10000 });
-  ok((await txt('#cErr')).includes('kiintiö'), 'virhe: kiintiö ylittyi');
+  ok((await txt('#cErr')).includes('käyttöraja on täynnä molemmissa'), 'virhe: kiintiö ylittyi (molemmat mallit, 8 yritystä)'); ok(mock.length === 0, '429-uusinnat käytetty');
   // Sumea kuva -vastaus
   mock.push({ status: 200, body: wrap({ luettavuus: { ok: false, ongelma: 'teksti on sumeaa' }, lahdeteksti: '', tiivistelma: '', kysymykset: [] }) });
   await pg.click('#cGo'); await sleep(800);
@@ -179,26 +181,42 @@ const wrap = obj => JSON.stringify({ candidates: [{ content: { parts: [{ text: J
   ok((await txt('#myExams')).includes('⭐⭐⭐') && /Taso \d/.test(await txt('#pcLvl')), 'Laurin tähdet ja taso');
   await shot('home');
 
-  // Kaikki erät epäonnistuvat → teksti säilyy, voi yrittää uudelleen
+  // Ruuhka (503): uusinta viiveellä, sitten varamalli; varamalli pysyy käytössä seuraavassa erässä
   await pg.click('#v-home [data-go=create]'); await sleep(200);
   await pg.type('#cSubject', 'Biologia'); await pg.type('#cName', 'Solut');
   await (await pg.$('#camIn')).uploadFile(path.join(__dirname, 'page1.jpg'));
   await pg.waitForFunction(() => document.querySelectorAll('#thumbs .thumb').length === 1);
   await pg.$$eval('#cCount .chip', cs => cs.find(c => c.dataset.v === '15').click());
-  mock.push({ status: 200, body: wrap(full) }); for (let i = 0; i < 4; i++) mock.push({ status: 503, body: '{"error":{"code":503,"message":"The model is overloaded.","status":"UNAVAILABLE"}}' });
-  await pg.$eval('#cGo', e => e.click()); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam' && !document.querySelector('#mErr').classList.contains('hidden'), { timeout: 15000 });
+  const busy = { status: 503, body: '{"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}' };
+  mock.push(busy, busy, { status: 200, body: wrap(full) });           // luku: 2 × 503 → onnistuu 3. yrityksellä
+  mock.push(busy, busy, busy, busy, { status: 200, body: wrap(more) }); // erä 1: 4 × 503 → varamalli
+  mock.push({ status: 200, body: wrap({ kysymykset: QS.slice(0, 5) }) }); // erä 2: suoraan varamallilla
+  const b4 = reqs.length;
+  await pg.evaluate(() => { window.__subs = []; new MutationObserver(() => window.__subs.push(document.querySelector('#loadSub').textContent)).observe(document.querySelector('#loadSub'), { childList: true, characterData: true, subtree: true }); });
+  await pg.$eval('#cGo', e => e.click()); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam', { timeout: 20000 });
+  const subs = await pg.evaluate(() => window.__subs);
+  const ps = reqs.slice(b4).filter(r => r.method === 'POST');
+  const mdl = ps.map(r => r.url.includes('3.5-flash-lite') ? 'L' : 'F').join('');
+  console.log('   mallit:', mdl, '| tilat:', subs.filter(t => /ruuhka|varamalli/i.test(t)).join(' / '));
+  ok(mdl === 'FFFFFFFLL', 'luku 3.8 (2 uusintaa), erä 1: 4 × 3.8 → varamalli, erä 2 suoraan varamallilla');
+  ok(JSON.parse(ps[7].body).generationConfig.thinkingConfig.thinkingLevel === 'minimal', 'varamallilla thinkingLevel minimal');
+  ok(subs.some(t => t.startsWith('Palvelu ruuhkassa, yritetään uudelleen')) && subs.some(t => t.startsWith('Käytetään varamallia')) && subs.some(t => /Erä 2\/2.*Käytetään varamallia/.test(t)), 'tila näkyy: ruuhka + varamalli (myös seuraavassa erässä)');
+  ok((await txt('#eStats')).startsWith('15 kysymystä'), 'koe valmis varamallilla (15 kysymystä)');
+  // Molemmat ruuhkassa → selkeä virhe, koe säilyy
+  for (let i = 0; i < 8; i++) mock.push(busy);
+  await pg.$eval('#eMore', e => e.click()); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam' && !document.querySelector('#mErr').classList.contains('hidden'), { timeout: 20000 });
   const me = await txt('#mErr'); console.log('   ', me);
-  ok(/häiriö/.test(me) && /Tee 10 lisää/.test(me) && !/vähemmillä kuvilla/.test(me), 'oikea syy + ohje, ei "vähemmillä kuvilla"');
-  ok(await pg.$eval('#ePlay', e => e.disabled) && (await txt('#eStats')).startsWith('0 kysymystä'), 'koe ja teksti tallessa, pelaaminen estetty kunnes kysymyksiä on');
-  mock.push({ status: 200, body: wrap(more) });
-  await pg.$eval('#eMore', e => e.click()); await pg.waitForFunction(() => document.querySelector('.view.on').id === 'v-exam' && document.querySelector('#eStats').innerText.startsWith('10'), { timeout: 10000 });
-  ok(true, 'uusi yritys "Tee 10 lisää" onnistui ilman kuvia');
+  ok(/ruuhkassa \(myös varamalli\)/.test(me) && !/vähemmillä kuvilla/.test(me) && mock.length === 0, 'molemmat ruuhkassa: selkeä virhe, 8 yritystä, ei lisäuusintoja');
+  ok((await txt('#eStats')).startsWith('15 kysymystä'), 'valmiit kysymykset säilyivät');
+  await pg.click('nav [data-go=settings]'); await sleep(200); await pg.click('#sDbg'); await sleep(100);
+  const dbg2 = await txt('#sDbgOut');
+  ok(dbg2.includes('"event":"fallback"') && dbg2.includes('"from":"gemini-3') && dbg2.includes('"http":503'), 'vianetsinnässä varamallin vaihto ja 503:t');
   await shot('partial');
   await pg.click('nav [data-go=home]'); await sleep(300);
 
   // Offline: sovellus latautuu välimuistista
   await pg.evaluate(() => navigator.serviceWorker.ready); await sleep(500);
-  await pg.setOfflineMode(true); await pg.reload(); await sleep(800);
+  await pg.setOfflineMode(true); await pg.reload(); await sleep(800); await pg.evaluate(() => { KK.BACKOFF_MS = [60, 120, 180]; });
   ok((await txt('#myExams')).includes('Ranskan vallankumous'), 'offline: sovellus ja kokeet toimivat');
   await pg.$$eval('#myExams [data-exam]', c => c[c.length - 1].click()); await sleep(300);
   await pg.$eval('#eMore', e => e.click()); await sleep(400);

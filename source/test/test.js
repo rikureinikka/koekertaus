@@ -178,5 +178,31 @@ t('HTTP-virheet suomeksi', () => {
   assert.strictEqual(KK.mapHttpError(503, 'x').code, 'server');
   assert.ok(/kiintiö/.test(KK.mapHttpError(429, '').message));
 });
+at('ruuhka: 503 → viiveet 2/5/10 s → varamalli onnistuu', async () => {
+  const calls = [], waits = [], status = [];
+  const fn = (model, meta) => { calls.push(model); if (model === 'gemini-3.8-flash') { const e = KK.mapHttpError(503, { error: { message: 'This model is currently experiencing high demand.' } }); return Promise.reject(e); } return Promise.resolve({ ok: 1 }); };
+  const r = await KK.withBackoff(fn, { model: 'gemini-3.8-flash', sleep: ms => { waits.push(ms); return Promise.resolve(); }, onStatus: m => status.push(m), rnd: () => 0.5 });
+  assert.deepStrictEqual(calls, ['gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite']);
+  assert.deepStrictEqual(waits, [2000, 5000, 10000]); assert.ok(r.usedFallback && r.usedModel === 'gemini-3.5-flash-lite');
+  assert.ok(status[0].startsWith('Palvelu ruuhkassa, yritetään uudelleen') && status[3].startsWith('Käytetään varamallia'));
+});
+at('ruuhka: toipuu uusinnalla ilman varamallia; jitter ±25 %', async () => {
+  let n = 0; const r = await KK.withBackoff(m => ++n < 3 ? Promise.reject(KK.mapHttpError(500, '')) : Promise.resolve({ m }), { model: 'gemini-3.8-flash', sleep: () => Promise.resolve() });
+  assert.strictEqual(n, 3); assert.ok(!r.usedFallback);
+  for (let i = 0; i < 50; i++) { const d = KK.backoffDelay(1, null); assert.ok(d >= 3750 && d <= 6250); }
+});
+at('ruuhka: Retry-After ja RetryInfo huomioidaan (max 30 s)', async () => {
+  assert.strictEqual(KK.backoffDelay(0, 8000, () => 0.5), 8000); assert.strictEqual(KK.backoffDelay(0, 99000, () => 0.5), 30000); assert.strictEqual(KK.backoffDelay(2, 1000, () => 0.5), 10000);
+  const e = KK.mapHttpError(429, { error: { message: 'Resource exhausted', status: 'RESOURCE_EXHAUSTED', details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '7s' }] } });
+  assert.strictEqual(e.retryAfter, 7000); assert.strictEqual(KK.mapHttpError(503, '', '4').retryAfter, 4000);
+  const waits = []; await assert.rejects(KK.withBackoff(() => Promise.reject(e), { model: 'gemini-3.8-flash', sleep: ms => { waits.push(ms); return Promise.resolve(); }, rnd: () => 0.5 }), x => x.backoffDone && /molemmissa/.test(x.message));
+  assert.deepStrictEqual(waits, [7000, 7000, 10000, 7000, 7000, 10000]);
+});
+at('ruuhka: molemmat mallit ruuhkassa → selkeä virhe, ei enää uusintoja ylemmällä tasolla', async () => {
+  let n = 0; const e0 = await KK.withBackoff(() => { n++; return Promise.reject(KK.mapHttpError(503, '')); }, { model: 'gemini-3.5-flash-lite', sleep: () => Promise.resolve() }).catch(e => e);
+  assert.strictEqual(n, 8); assert.ok(/ruuhkassa \(myös varamalli\)/.test(e0.message)); assert.ok(!KK.isRetryable(e0));
+  let m = 0; await assert.rejects(KK.withBackoff(() => { m++; return Promise.reject(KK.mapHttpError(400, { error: { message: 'API key not valid', details: [{ reason: 'API_KEY_INVALID' }] } })); }, { model: 'gemini-3.8-flash', sleep: () => Promise.resolve() }), x => x.code === 'key'); assert.strictEqual(m, 1);
+  assert.strictEqual(KK.fallbackModel('gemini-3.8-flash'), 'gemini-3.5-flash-lite'); assert.strictEqual(KK.fallbackModel('gemini-3.5-flash-lite'), 'gemini-3.8-flash');
+});
 (async () => { for (const [name, fn] of asyncTests) { n++; try { await fn(); console.log('ok   ' + name); } catch (e) { fail++; console.log('FAIL ' + name + '\n     ' + e.message); } }
   console.log(`\n${n - fail}/${n} testiä läpi`); if (fail) process.exit(1); })();

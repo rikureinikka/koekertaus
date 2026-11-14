@@ -252,8 +252,9 @@
   function err(code, msg, detail) { var e = new Error(msg); e.code = code; e.detail = detail; return e; }
   KK.err = err;
   // Ohimenevät virheet, jotka kannattaa yrittää kerran uudelleen
-  KK.isRetryable = function (e) { return !!e && ['net', 'timeout', 'server', 'parse', 'empty', 'toolong'].indexOf(e.code) >= 0; };
-  KK.mapHttpError = function (status, body) {
+  KK.isRetryable = function (e) { return !!e && !e.backoffDone && ['net', 'timeout', 'server', 'parse', 'empty', 'toolong'].indexOf(e.code) >= 0; };
+  KK.mapHttpError = function (status, body, retryAfterHeader) { var e = KK._mapHttpError(status, body); e.status = status; e.retryAfter = KK.retryAfterMs(retryAfterHeader, body); return e; };
+  KK._mapHttpError = function (status, body) {
     var m = '', reason = '';
     try { var j = typeof body === 'string' ? JSON.parse(body) : body; m = (j && j.error && j.error.message) || ''; reason = JSON.stringify((j && j.error && j.error.details) || '') + ' ' + ((j && j.error && j.error.status) || ''); } catch (e) { m = String(body || '').slice(0, 200); }
     var all = (m + ' ' + reason);
@@ -266,6 +267,53 @@
     if (status === 400 && /image|inline_data|too large|payload size|request size/i.test(all)) return err('image', 'Kuvien lähetys epäonnistui (kuvat liian suuria). Kokeile vähemmillä kuvilla.', m);
     if (status >= 500) return err('server', 'Tekoälypalvelussa on häiriö. Yritä hetken päästä uudelleen.', m);
     return err('http', 'Tekoälypalvelu palautti virheen (' + status + ').', m);
+  };
+
+  // ---------- ruuhka: uusinnat viiveellä + varamalli ----------
+  KK.BACKOFF_MS = [2000, 5000, 10000];
+  KK.OVERLOAD_STATUSES = [429, 500, 502, 503, 504];
+  KK.isOverload = function (e) { return !!e && KK.OVERLOAD_STATUSES.indexOf(e.status) >= 0; };
+  KK.fallbackModel = function (model) { return model === 'gemini-3.5-flash-lite' ? 'gemini-3.8-flash' : 'gemini-3.5-flash-lite'; };
+  // Retry-After (sekunteja tai HTTP-päiväys) tai Googlen RetryInfo.retryDelay ("7s") → ms
+  KK.retryAfterMs = function (header, body, now) {
+    if (header) { var n = Number(header); if (isFinite(n) && n >= 0) return n * 1000; var d = Date.parse(header); if (!isNaN(d)) return Math.max(0, d - (now || Date.now())); }
+    try { var j = typeof body === 'string' ? JSON.parse(body) : body; var det = (j && j.error && j.error.details) || [];
+      for (var i = 0; i < det.length; i++) { var rd = det[i] && det[i].retryDelay; if (rd) { var m = String(rd).match(/^([\d.]+)s$/); if (m) return parseFloat(m[1]) * 1000; } } } catch (e) { /* ei */ }
+    return null;
+  };
+  // Viive: perusviive ±25 % satunnaisuudella; Retry-After voittaa jos se on pidempi (enintään 30 s)
+  KK.backoffDelay = function (i, retryAfter, rnd) {
+    var base = KK.BACKOFF_MS[Math.min(i, KK.BACKOFF_MS.length - 1)];
+    var ms = Math.round(base * (0.75 + 0.5 * (rnd || Math.random)()));
+    if (retryAfter != null) ms = Math.max(ms, Math.min(retryAfter, 30000));
+    return ms;
+  };
+  // fn(model, meta) → Promise. Uusii ruuhkavirheet viiveillä, sitten vaihtaa varamalliin (samat viiveet).
+  // opts: {model, sleep(ms), onStatus(msg, meta), rnd, fallback:true}
+  KK.withBackoff = function (fn, opts) {
+    var sleep = opts.sleep || function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var models = [opts.model]; if (opts.fallback !== false) models.push(KK.fallbackModel(opts.model));
+    var tries = [];
+    function run(mi, i) {
+      var model = models[mi], meta = { model: model, attempt: i + 1, fallback: mi > 0, tries: tries };
+      return fn(model, meta).then(function (r) { if (r && typeof r === 'object') { r.usedModel = model; r.usedFallback = mi > 0; } return r; }, function (e) {
+        tries.push({ model: model, status: e.status, code: e.code });
+        if (!KK.isOverload(e)) throw e;
+        if (i < KK.BACKOFF_MS.length) {
+          var ms = KK.backoffDelay(i, e.retryAfter, opts.rnd);
+          if (opts.onStatus) opts.onStatus((e.status === 429 ? 'Käyttöraja tuli vastaan' : 'Palvelu ruuhkassa') + ', yritetään uudelleen ' + Math.round(ms / 1000) + ' s kuluttua… (' + (i + 1) + '/' + KK.BACKOFF_MS.length + ')', { model: model, waitMs: ms, attempt: i + 1, fallback: mi > 0 });
+          return sleep(ms).then(function () { return run(mi, i + 1); });
+        }
+        if (mi + 1 < models.length) {
+          if (opts.onStatus) opts.onStatus('Käytetään varamallia (' + models[mi + 1] + ')…', { model: models[mi + 1], switchFrom: model, fallback: true });
+          return run(mi + 1, 0);
+        }
+        e.backoffDone = true;
+        e.message = (e.status === 429 ? 'Tekoälyn käyttöraja on täynnä molemmissa malleissa. Odota hetki tai kokeile myöhemmin uudelleen.' : 'Tekoälypalvelu on ruuhkassa (myös varamalli). Odota pari minuuttia ja yritä uudelleen.');
+        throw e;
+      });
+    }
+    return run(0, 0);
   };
 
   // Katkenneen JSONin pelastus: etsitään viimeinen kohta, jossa arvo päättyi kokonaan, ja suljetaan avoimet sulut

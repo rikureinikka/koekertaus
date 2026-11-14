@@ -225,7 +225,7 @@ a{color:var(--pri);font-weight:700}
       <pre id="sDbgOut" class="hidden" style="white-space:pre-wrap;word-break:break-all;font-size:12px;background:#f6f4ff;border-radius:12px;padding:10px;max-height:60vh;overflow:auto"></pre></div>
     <div class="card"><h3 style="margin-top:0">Tiedot</h3><p class="muted">Kokeet, tehtävät ja pisteet tallennetaan vain tähän laitteeseen. Tiliä tai palvelinta ei ole.</p>
       <button class="btn bad small" id="sWipe">Poista kaikki tiedot</button></div>
-    <p class="muted center">Versio 20261114-1051</p>
+    <p class="muted center">Versio 20261114-1100</p>
   </section>
 
   <!-- OHJE -->
@@ -501,8 +501,9 @@ a{color:var(--pri);font-weight:700}
   function err(code, msg, detail) { var e = new Error(msg); e.code = code; e.detail = detail; return e; }
   KK.err = err;
   // Ohimenevät virheet, jotka kannattaa yrittää kerran uudelleen
-  KK.isRetryable = function (e) { return !!e && ['net', 'timeout', 'server', 'parse', 'empty', 'toolong'].indexOf(e.code) >= 0; };
-  KK.mapHttpError = function (status, body) {
+  KK.isRetryable = function (e) { return !!e && !e.backoffDone && ['net', 'timeout', 'server', 'parse', 'empty', 'toolong'].indexOf(e.code) >= 0; };
+  KK.mapHttpError = function (status, body, retryAfterHeader) { var e = KK._mapHttpError(status, body); e.status = status; e.retryAfter = KK.retryAfterMs(retryAfterHeader, body); return e; };
+  KK._mapHttpError = function (status, body) {
     var m = '', reason = '';
     try { var j = typeof body === 'string' ? JSON.parse(body) : body; m = (j && j.error && j.error.message) || ''; reason = JSON.stringify((j && j.error && j.error.details) || '') + ' ' + ((j && j.error && j.error.status) || ''); } catch (e) { m = String(body || '').slice(0, 200); }
     var all = (m + ' ' + reason);
@@ -515,6 +516,53 @@ a{color:var(--pri);font-weight:700}
     if (status === 400 && /image|inline_data|too large|payload size|request size/i.test(all)) return err('image', 'Kuvien lähetys epäonnistui (kuvat liian suuria). Kokeile vähemmillä kuvilla.', m);
     if (status >= 500) return err('server', 'Tekoälypalvelussa on häiriö. Yritä hetken päästä uudelleen.', m);
     return err('http', 'Tekoälypalvelu palautti virheen (' + status + ').', m);
+  };
+
+  // ---------- ruuhka: uusinnat viiveellä + varamalli ----------
+  KK.BACKOFF_MS = [2000, 5000, 10000];
+  KK.OVERLOAD_STATUSES = [429, 500, 502, 503, 504];
+  KK.isOverload = function (e) { return !!e && KK.OVERLOAD_STATUSES.indexOf(e.status) >= 0; };
+  KK.fallbackModel = function (model) { return model === 'gemini-3.5-flash-lite' ? 'gemini-3.8-flash' : 'gemini-3.5-flash-lite'; };
+  // Retry-After (sekunteja tai HTTP-päiväys) tai Googlen RetryInfo.retryDelay ("7s") → ms
+  KK.retryAfterMs = function (header, body, now) {
+    if (header) { var n = Number(header); if (isFinite(n) && n >= 0) return n * 1000; var d = Date.parse(header); if (!isNaN(d)) return Math.max(0, d - (now || Date.now())); }
+    try { var j = typeof body === 'string' ? JSON.parse(body) : body; var det = (j && j.error && j.error.details) || [];
+      for (var i = 0; i < det.length; i++) { var rd = det[i] && det[i].retryDelay; if (rd) { var m = String(rd).match(/^([\d.]+)s$/); if (m) return parseFloat(m[1]) * 1000; } } } catch (e) { /* ei */ }
+    return null;
+  };
+  // Viive: perusviive ±25 % satunnaisuudella; Retry-After voittaa jos se on pidempi (enintään 30 s)
+  KK.backoffDelay = function (i, retryAfter, rnd) {
+    var base = KK.BACKOFF_MS[Math.min(i, KK.BACKOFF_MS.length - 1)];
+    var ms = Math.round(base * (0.75 + 0.5 * (rnd || Math.random)()));
+    if (retryAfter != null) ms = Math.max(ms, Math.min(retryAfter, 30000));
+    return ms;
+  };
+  // fn(model, meta) → Promise. Uusii ruuhkavirheet viiveillä, sitten vaihtaa varamalliin (samat viiveet).
+  // opts: {model, sleep(ms), onStatus(msg, meta), rnd, fallback:true}
+  KK.withBackoff = function (fn, opts) {
+    var sleep = opts.sleep || function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var models = [opts.model]; if (opts.fallback !== false) models.push(KK.fallbackModel(opts.model));
+    var tries = [];
+    function run(mi, i) {
+      var model = models[mi], meta = { model: model, attempt: i + 1, fallback: mi > 0, tries: tries };
+      return fn(model, meta).then(function (r) { if (r && typeof r === 'object') { r.usedModel = model; r.usedFallback = mi > 0; } return r; }, function (e) {
+        tries.push({ model: model, status: e.status, code: e.code });
+        if (!KK.isOverload(e)) throw e;
+        if (i < KK.BACKOFF_MS.length) {
+          var ms = KK.backoffDelay(i, e.retryAfter, opts.rnd);
+          if (opts.onStatus) opts.onStatus((e.status === 429 ? 'Käyttöraja tuli vastaan' : 'Palvelu ruuhkassa') + ', yritetään uudelleen ' + Math.round(ms / 1000) + ' s kuluttua… (' + (i + 1) + '/' + KK.BACKOFF_MS.length + ')', { model: model, waitMs: ms, attempt: i + 1, fallback: mi > 0 });
+          return sleep(ms).then(function () { return run(mi, i + 1); });
+        }
+        if (mi + 1 < models.length) {
+          if (opts.onStatus) opts.onStatus('Käytetään varamallia (' + models[mi + 1] + ')…', { model: models[mi + 1], switchFrom: model, fallback: true });
+          return run(mi + 1, 0);
+        }
+        e.backoffDone = true;
+        e.message = (e.status === 429 ? 'Tekoälyn käyttöraja on täynnä molemmissa malleissa. Odota hetki tai kokeile myöhemmin uudelleen.' : 'Tekoälypalvelu on ruuhkassa (myös varamalli). Odota pari minuuttia ja yritä uudelleen.');
+        throw e;
+      });
+    }
+    return run(0, 0);
   };
 
   // Katkenneen JSONin pelastus: etsitään viimeinen kohta, jossa arvo päättyi kokonaan, ja suljetaan avoimet sulut
@@ -713,7 +761,7 @@ $('#sTest').onclick=function(){var k=$('#sKey').value.trim();if(!k){sMsg('err','
     if(r.ok)sMsg('info','✅ Avain toimii! Malli '+S.model+' on käytettävissä.');else sMsg('err',KK.mapHttpError(r.status,t).message);});})
   .catch(function(){sMsg('err',navigator.onLine?'Yhteys Googleen ei onnistunut. Yritä uudelleen.':'Ei verkkoyhteyttä.');});};
 function dbgText(){var a=dbgAll();if(!a.length)return 'Ei kirjattuja tekoälykutsuja.';var errs=a.filter(function(r){return r.error;});var last=errs[errs.length-1];
-  return 'Koekertaus 20261114-1051 · '+navigator.userAgent+'\n\nVIIMEISIN VIRHE:\n'+(last?JSON.stringify(last,null,1):'ei virheitä')+'\n\nVIIMEISET KUTSUT:\n'+a.slice(-8).map(function(r){return JSON.stringify(r);}).join('\n');}
+  return 'Koekertaus 20261114-1100 · '+navigator.userAgent+'\n\nVIIMEISIN VIRHE:\n'+(last?JSON.stringify(last,null,1):'ei virheitä')+'\n\nVIIMEISET KUTSUT:\n'+a.slice(-8).map(function(r){return JSON.stringify(r);}).join('\n');}
 $('#sDbg').onclick=function(){var o=$('#sDbgOut');o.textContent=dbgText();o.classList.remove('hidden');$('#sDbgCopy').classList.remove('hidden');};
 $('#sDbgCopy').onclick=function(){var t=dbgText();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){toast('📋 Kopioitu');},function(){var r=document.createRange();r.selectNodeContents($('#sDbgOut'));var sel=getSelection();sel.removeAllRanges();sel.addRange(r);document.execCommand('copy');toast('📋 Kopioitu');});};
 $('#sWipe').onclick=function(){if(!confirm('Poistetaanko kaikki kokeet, pelaajat ja pisteet tästä laitteesta? API-avain säilyy.'))return;
@@ -765,18 +813,18 @@ function dbgAll(){try{return JSON.parse(localStorage.getItem(DBGKEY)||'[]');}cat
 function dbgLog(rec){var a=dbgAll();a.push(rec);while(a.length>25)a.shift();try{localStorage.setItem(DBGKEY,JSON.stringify(a));}catch(e){}}
 function nowTxt(){var d=new Date();function p(n){return (n<10?'0':'')+n;}return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
 // Yksi Gemini-kutsu. o.stage='read' (kuvat) tai 'questions' (teksti → o.count kysymystä)
-function callGemini(o){
+function callGeminiOnce(o,model){
   if(!S.apiKey)return Promise.reject(KK.err('nokey','Tekoälyavain puuttuu. Lisää Gemini API -avain Asetuksissa (ohje Ohje-välilehdellä).'));
   if(navigator.onLine===false)return Promise.reject(KK.err('offline','Ei verkkoyhteyttä. Tehtävien tekeminen vaatii netin, mutta valmiita kokeita voi pelata.'));
-  o.model=S.model;
+  o=Object.assign({},o,{model:model});
   function attempt(field,noThinking){var q=Object.assign({},o,{schemaField:field});if(noThinking)q.noThinking=true;var body=KK.buildRequest(q);
     var ac=window.AbortController?new AbortController():null,t0=Date.now(),timedOut=false;var to=setTimeout(function(){timedOut=true;if(ac)ac.abort();},150000);
-    var rec={t:nowTxt(),stage:o.stage,model:S.model,count:o.count||null,schema:field,thinking:body.generationConfig.thinkingConfig?body.generationConfig.thinkingConfig.thinkingLevel:'-',maxOutputTokens:body.generationConfig.maxOutputTokens,images:(o.images||[]).length,requestKB:Math.round(JSON.stringify(body).length/1024)};
+    var rec={t:nowTxt(),stage:o.stage,model:model,count:o.count||null,schema:field,thinking:body.generationConfig.thinkingConfig?body.generationConfig.thinkingConfig.thinkingLevel:'-',maxOutputTokens:body.generationConfig.maxOutputTokens,images:(o.images||[]).length,requestKB:Math.round(JSON.stringify(body).length/1024)};
     function done(extra,e){rec.ms=Date.now()-t0;for(var k in extra)rec[k]=extra[k];if(e){rec.error={code:e.code,message:e.message,detail:e.detail?String(e.detail).slice(0,600):undefined};}dbgLog(rec);}
-    return fetch(KK.endpoint(S.model),{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.apiKey},body:JSON.stringify(body),signal:ac&&ac.signal})
+    return fetch(KK.endpoint(model),{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.apiKey},body:JSON.stringify(body),signal:ac&&ac.signal})
     .catch(function(e){clearTimeout(to);var er=timedOut?KK.err('timeout','Tekoäly ei vastannut 2,5 minuutissa. Yritä uudelleen – verkko tai palvelu voi olla hidas.'):KK.err('net','Yhteys tekoälyyn katkesi. Tarkista netti ja yritä uudelleen.');done({http:0},er);throw er;})
     .then(function(r){clearTimeout(to);return r.text().then(function(t){
-      if(!r.ok){var er=KK.mapHttpError(r.status,t);done({http:r.status},er);throw er;}
+      if(!r.ok){var er=KK.mapHttpError(r.status,t,r.headers.get('retry-after'));done({http:r.status},er);throw er;}
       var j;try{j=JSON.parse(t);}catch(e){var pe=KK.err('parse','Tekoälyn vastausta ei voitu lukea.');done({http:r.status,rawTail:t.slice(-300)},pe);throw pe;}
       var c=j.candidates&&j.candidates[0];var base={http:r.status,finishReason:c&&c.finishReason,usage:j.usageMetadata,modelVersion:j.modelVersion};
       try{var info=KK.parseResponse(j,o.stage);done(Object.assign(base,{truncated:info.truncated,salvaged:info.salvaged,textLength:info.textLength,questions:info.questions?info.questions.length:undefined,textTail:info.truncated||info.salvaged?info.textTail:undefined}));return info;}
@@ -784,6 +832,15 @@ function callGemini(o){
     });});}
   return attempt('responseJsonSchema').catch(function(e){if(e.code==='schema')return attempt('responseSchema',/thinking/i.test(e.detail||''));throw e;});
 }
+var overloadedUntil={};
+// Ruuhkassa: uusinnat 2 s / 5 s / 10 s (+satunnaisuus, Retry-After), sitten varamalli. Ruuhkainen malli ohitetaan 5 min ajan.
+function callGemini(o){
+  var start=S.model;if(overloadedUntil[start]>Date.now())start=KK.fallbackModel(start);
+  return KK.withBackoff(function(model,meta){return callGeminiOnce(o,model);},{model:start,onStatus:function(msg,meta){statusMsg(msg);
+      dbgLog({t:nowTxt(),event:meta.switchFrom?'fallback':'retry-wait',stage:o.stage,model:meta.model,from:meta.switchFrom,waitMs:meta.waitMs,attempt:meta.attempt});}})
+  .then(function(info){if(info.usedModel!==S.model){overloadedUntil[S.model]=Date.now()+300000;}if(info.usedFallback)statusMsg('Varamalli '+info.usedModel+' vastasi ✅');return info;});
+}
+function statusMsg(t){if(curView==='loading')$('#loadSub').textContent=t;}
 // Ohimenevät virheet: yksi uusintayritys
 function withRetry(fn){return fn().catch(function(e){if(KK.isRetryable(e))return fn();throw e;});}
 var loadT=null;
@@ -794,7 +851,7 @@ function step(title,sub){$('#loadMsg').textContent=title;if(sub!==undefined)$('#
 function makeQuestions(e,total,diff,label){var p=player();var plan=KK.batchPlan(total);var made=0;
   return KK.runBatches(function(o){return callGemini(o);},
     {stage:'questions',sourceText:e.newText||e.sourceText,grade:p.grade,subject:e.subject,title:e.title,difficulty:diff,avoid:e.questions.map(function(q){return q.q;}),
-     onProgress:function(i,n){step((label||'')+'Tehdään kysymyksiä '+(made+1)+'–'+(made+plan[i])+' / '+total+' 💡',n>1?'Erä '+(i+1)+'/'+n+'. Valmiit tallentuvat heti.':'');}},
+     onProgress:function(i,n){step((label||'')+'Tehdään kysymyksiä '+(made+1)+'–'+(made+plan[i])+' / '+total+' 💡',(n>1?'Erä '+(i+1)+'/'+n+'. Valmiit tallentuvat heti.':'')+(overloadedUntil[S.model]>Date.now()?' Käytetään varamallia ('+KK.fallbackModel(S.model)+'), koska '+S.model+' on ruuhkassa.':''));}},
     plan,function(add){add.forEach(function(q){q.difficulty=q.difficulty||diff;});made+=add.length;e.questions=e.questions.concat(add);return DB.put('exams',e);});
 }
 function genReport(r,total){var n=r.questions.length;
